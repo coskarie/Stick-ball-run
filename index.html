@@ -130,36 +130,41 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// --- [추가] 멀티플레이어 소켓 설정 ---
+// --- [추가] 멀티플레이어 소켓 설정 및 방장 시스템 ---
 const socket = io();
-const otherPlayers = {}; // 같은 방에 있는 다른 유저들의 데이터를 저장할 객체
+const otherPlayers = {}; 
+let isHost = false; 
 
-// 소켓 이벤트 리스너 설정
-socket.on('currentPlayers', (players) => {
-    players.forEach(p => {
-        if (p.id !== socket.id) {
-            otherPlayers[p.id] = p;
-        }
+socket.on('initData', (data) => {
+    isHost = data.isHost;
+    if (isHost) document.getElementById('playerInfoUI').innerText += " (방장)";
+    data.players.forEach(p => {
+        if (p.id !== socket.id) otherPlayers[p.id] = p;
     });
 });
 
-socket.on('newPlayer', (p) => {
-    otherPlayers[p.id] = p;
-});
-
-socket.on('playerMoved', (data) => {
-    if (otherPlayers[data.id]) {
-        otherPlayers[data.id] = data;
+socket.on('hostAssigned', () => {
+    isHost = true;
+    const currentText = document.getElementById('playerInfoUI').innerText;
+    if (!currentText.includes("(방장)")) {
+        document.getElementById('playerInfoUI').innerText += " (방장)";
     }
 });
 
-socket.on('playerDisconnected', (id) => {
-    delete otherPlayers[id];
+socket.on('newPlayer', (p) => { otherPlayers[p.id] = p; });
+socket.on('playerMoved', (data) => { if (otherPlayers[data.id]) otherPlayers[data.id] = data; });
+socket.on('playerDisconnected', (id) => { delete otherPlayers[id]; });
+socket.on('remoteBullet', (bData) => { bullets.push(bData); });
+
+// 적 스폰 이벤트 수신 (내가 방장이어도 이 이벤트를 통해 적을 동기화하여 등록함)
+socket.on('enemySpawned', (eData) => {
+    enemies.push(eData);
 });
 
-socket.on('remoteBullet', (bData) => {
-    // 다른 사람이 쏜 총알을 내 화면에도 추가 (적 타격 가능)
-    bullets.push(bData);
+// 다른 유저가 적을 맞췄을 때 체력 동기화
+socket.on('updateEnemyHp', ({ enemyId, damage }) => {
+    let e = enemies.find(en => en.id === enemyId);
+    if (e) e.hp -= damage;
 });
 // ------------------------------------
 
@@ -262,13 +267,23 @@ const bullets = [];
 const enemies = [];
 const sparks = []; 
 
-// --- 청크(Chunk) 기반 지형 생성 로직 ---
+// --- 시드 기반 난수 생성기 (지형 동기화) ---
+let terrainSeed = 1;
+function seededRandom() {
+    let x = Math.sin(terrainSeed++) * 10000;
+    return x - Math.floor(x);
+}
+
 const CHUNK_WIDTH = 800; 
 let terrainChunks = [];
 let lastPoint = { x: 0, y: 500 }; 
 
-terrainChunks.push([ { x: 0, y: 500 }, { x: CHUNK_WIDTH, y: 500 } ]);
-lastPoint = { x: CHUNK_WIDTH, y: 500 };
+function initTerrain() {
+    terrainChunks = [];
+    lastPoint = { x: 0, y: 500 }; 
+    terrainChunks.push([ { x: 0, y: 500 }, { x: CHUNK_WIDTH, y: 500 } ]);
+    lastPoint = { x: CHUNK_WIDTH, y: 500 };
+}
 
 function lerpY(x, p1, p2) {
     return p1.y + (x - p1.x) / (p2.x - p1.x) * (p2.y - p1.y);
@@ -280,13 +295,14 @@ function generateTerrain() {
         let endX = startX + CHUNK_WIDTH;
         
         let macroPoints = [];
-        const type = Math.floor(Math.random() * 3); 
-        const getNextY = (prevY) => Math.max(300, Math.min(650, prevY + (Math.random() * 120) - 60));
+        // 지형 생성에 Math.random() 대신 seededRandom() 사용
+        const type = Math.floor(seededRandom() * 3); 
+        const getNextY = (prevY) => Math.max(300, Math.min(650, prevY + (seededRandom() * 120) - 60));
 
         if (type === 0) { 
             macroPoints.push({ x: endX, y: getNextY(lastPoint.y) });
         } else if (type === 1) { 
-            let midX = startX + CHUNK_WIDTH * (Math.random() * 0.4 + 0.3);
+            let midX = startX + CHUNK_WIDTH * (seededRandom() * 0.4 + 0.3);
             let midY = getNextY(lastPoint.y);
             macroPoints.push({ x: midX, y: midY });
             macroPoints.push({ x: endX, y: getNextY(midY) });
@@ -307,19 +323,19 @@ function generateTerrain() {
             let p2 = macroPoints[i];          
             let segmentWidth = p2.x - p1.x;
 
-            if (segmentWidth > 300 && Math.random() < 0.35) {
-                let subType = Math.random() < 0.5 ? 'mountain' : 'hill';
+            if (segmentWidth > 300 && seededRandom() < 0.35) {
+                let subType = seededRandom() < 0.5 ? 'mountain' : 'hill';
                 let subWidth, peakHeight;
 
                 if (subType === 'mountain') {
-                    subWidth = Math.min(Math.random() * 200 + 150, segmentWidth * 0.85);
-                    peakHeight = Math.random() * 120 + 100; 
+                    subWidth = Math.min(seededRandom() * 200 + 150, segmentWidth * 0.85);
+                    peakHeight = seededRandom() * 120 + 100; 
                 } else {
-                    subWidth = Math.min(Math.random() * 400 + 300, segmentWidth * 0.95);
-                    peakHeight = Math.random() * 60 + 50; 
+                    subWidth = Math.min(seededRandom() * 400 + 300, segmentWidth * 0.95);
+                    peakHeight = seededRandom() * 60 + 50; 
                 }
                 
-                let subStartX = p1.x + (segmentWidth - subWidth) * Math.random(); 
+                let subStartX = p1.x + (segmentWidth - subWidth) * seededRandom(); 
                 let subEndX = subStartX + subWidth;
                 
                 let subStartY = lerpY(subStartX, p1, p2);
@@ -354,6 +370,7 @@ function generateTerrain() {
         terrainChunks.shift();
     }
 }
+
 
 function getTerrainY(x) {
     for (let chunk of terrainChunks) {
@@ -424,23 +441,14 @@ function spawnBullet(angle, wData, shootY) {
 // --- 게임 엔진 로직 ---
 let lastEnemySpawn = Date.now();
 
-function gameLoop() {
-    update();
-    draw();
-    if (isGameStarted) {
-        requestAnimationFrame(gameLoop);
-    }
-}
-
 // --- 메인 루프 (update) ---
 function update() {
     generateTerrain();
 
-    // [추가] 서버 전송용 내 조준 각도 갱신
     let shootY = player.isCrouching ? player.y - 23 : player.y - 38;
     player.aimAngle = Math.atan2(mouse.y - shootY, (mouse.x + camX) - player.x);
 
-    // [추가] 서버로 내 상태 지속적 전송
+    // 내 상태 서버 전송 (방패 내구도 포함)
     if (isGameStarted) {
         socket.emit('playerUpdate', {
             x: player.x,
@@ -452,7 +460,8 @@ function update() {
             aimAngle: player.aimAngle,
             isReloading: player.isReloading,
             vx: player.vx,
-            name: globalPlayerName // 이름 정보 포함
+            name: globalPlayerName,
+            shieldAmmo: player.ammo['shield'] 
         });
     }
 
@@ -545,61 +554,65 @@ function update() {
     document.getElementById('hpUI').innerText = `${Math.max(0, player.hp)} / ${player.maxHp}`; 
 
     let currentMeters = Math.floor(maxDistance / 50);
-    
     let spawnCooldown = 5000; 
     let specialChance = 0.05; 
     let enemyLevel = 1;
 
-    if (currentMeters < 1000) {
-        spawnCooldown = 5000; 
-        specialChance = 0.01; 
-        enemyLevel = 1;
-    } else if (currentMeters < 2000) {
-        spawnCooldown = 3000; 
-        specialChance = 0.05; 
-        enemyLevel = 3;
-    } else if (currentMeters < 3000) {
-        spawnCooldown = 1000;  
-        specialChance = 0.10; 
-        enemyLevel = 5;
-    } else {
-        spawnCooldown = 500;  
-        specialChance = 0.20; 
-        enemyLevel = 8;
-    }
+    if (currentMeters < 1000) { spawnCooldown = 5000; specialChance = 0.01; enemyLevel = 1; } 
+    else if (currentMeters < 2000) { spawnCooldown = 3000; specialChance = 0.05; enemyLevel = 3; } 
+    else if (currentMeters < 3000) { spawnCooldown = 1000; specialChance = 0.10; enemyLevel = 5; } 
+    else { spawnCooldown = 500; specialChance = 0.20; enemyLevel = 8; }
 
-    if (Date.now() - lastEnemySpawn > spawnCooldown) {
+    // [핵심] 방장(Host)일 경우에만 적을 생성하고 서버로 동기화
+    if (isHost && Date.now() - lastEnemySpawn > spawnCooldown) {
         let enemyType = 0; 
         if (Math.random() < specialChance) {
             enemyType = Math.random() < 0.5 ? 1 : 2; 
         }
         let isSpecial = enemyType > 0;
         
-        enemies.push({
+        let newEnemy = {
+            id: Math.random().toString(36).substr(2, 9), // 적 고유 ID 부여
             x: player.x + canvas.width + 100, 
             y: 100, 
-            vx: 0, 
-            vy: 0,
-            width: 20, height: 50,
+            vx: 0, vy: 0, width: 20, height: 50,
             hp: isSpecial ? 60 + (enemyLevel * 10) : 25 + (enemyLevel * 3),
             maxHp: isSpecial ? 60 + (enemyLevel * 10) : 25 + (enemyLevel * 3),
             color: enemyType === 2 ? 'orange' : (enemyType === 1 ? 'purple' : '#00aa00'),
             enemyType: enemyType, 
             walkTime: Math.random() * Math.PI, 
-            shootTimer: 0,
-            attackTimer: 0, 
+            shootTimer: 0, attackTimer: 0, 
             reward: isSpecial ? 50 : 20,
             weapon: enemyType === 2 ? 'melee' : 'pistol', 
             isGrounded: false 
-        });
+        };
+        socket.emit('spawnEnemy', newEnemy);
         lastEnemySpawn = Date.now();
     }
 
     for (let i = enemies.length - 1; i >= 0; i--) {
         let e = enemies[i];
+        if (e.hp <= 0) {
+            player.money += e.reward; 
+            enemies.splice(i, 1);
+            continue;
+        }
+
         e.vy += player.gravity;
         
-        let dist = e.x - player.x; 
+        // 멀티플레이어 타겟팅 AI (나와 다른 유저 중 제일 가까운 사람 타겟팅)
+        let target = player;
+        let minDist = Math.abs(e.x - player.x);
+        for (let id in otherPlayers) {
+            let op = otherPlayers[id];
+            let absD = Math.abs(e.x - op.x);
+            if (absD < minDist) {
+                minDist = absD;
+                target = op;
+            }
+        }
+
+        let dist = e.x - target.x; 
         let absDist = Math.abs(dist);
         let dir = dist > 0 ? -1 : 1; 
         let baseSpeed = e.maxHp >= 60 ? 2 : 1.25; 
@@ -616,16 +629,19 @@ function update() {
                 e.lastShot = Date.now();
                 e.attackTimer = 15; 
                 
-                if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
-                    player.ammo['shield']--;
-                    for (let k = 0; k < 10; k++) {
-                        sparks.push({ x: player.x, y: player.y - 25, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 15 + Math.random() * 10 });
-                    }
-                } else {
-                    player.hp -= 20; 
-                    if (player.hp <= 0) {
-                        alert("체력이 0이 되었습니다. 게임 오버!");
-                        location.reload(); 
+                // 타겟이 나일 때만 체력 깎임 처리 (중복 데미지 방지)
+                if (target === player) {
+                    if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
+                        player.ammo['shield']--;
+                        for (let k = 0; k < 10; k++) {
+                            sparks.push({ x: player.x, y: player.y - 25, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 15 + Math.random() * 10 });
+                        }
+                    } else {
+                        player.hp -= 20; 
+                        if (player.hp <= 0) {
+                            alert("체력이 0이 되었습니다. 게임 오버!");
+                            location.reload(); 
+                        }
                     }
                 }
             }
@@ -642,8 +658,8 @@ function update() {
                 e.lastShot = Date.now();
                 e.shootTimer = 100; 
                 
-                const targetHeadY = player.y - 45; 
-                const angle = Math.atan2(targetHeadY - (e.y - 38), player.x - e.x);
+                const targetHeadY = target.y - 45; 
+                const angle = Math.atan2(targetHeadY - (e.y - 38), target.x - e.x);
                 
                 bullets.push({
                     x: e.x, y: e.y - 38,
@@ -677,6 +693,7 @@ function update() {
         if (e.x < camX - 1000 || e.y > 2000) enemies.splice(i, 1);
     }
 
+    // --- 피격 판정 (방패 공유 시스템) ---
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         b.x += b.vx;
@@ -685,14 +702,17 @@ function update() {
         let destroy = false;
 
         if (b.isEnemy) {
+            let hitSomeone = false;
             let pHeight = player.isCrouching ? 35 : player.height;
             let bRadius = b.weaponType === 'sniper' ? 5 : 3;
 
+            // 1. 내가 맞거나 막았는지 체크
             if (b.x + bRadius > player.x - player.width/2 && 
                 b.x - bRadius < player.x + player.width/2 && 
                 b.y + bRadius > player.y - pHeight && 
                 b.y - bRadius < player.y) {
                 
+                hitSomeone = true;
                 if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
                     player.ammo['shield']--; 
                     destroy = true;          
@@ -714,18 +734,37 @@ function update() {
                     }
                 }
             }
+
+            // 2. 다른 아군이 맞거나 막았는지 체크 (내가 안 맞았을 때)
+            if (!hitSomeone) {
+                for (let id in otherPlayers) {
+                    let op = otherPlayers[id];
+                    let opHeight = op.isCrouching ? 35 : 50; 
+                    if (b.x + bRadius > op.x - 10 && b.x - bRadius < op.x + 10 && 
+                        b.y + bRadius > op.y - opHeight && b.y - bRadius < op.y) {
+                        
+                        destroy = true; // 아군이 맞았으니 총알이 통과하지 못하고 사라짐
+                        if (op.weapon === 'shield' && op.shieldAmmo > 0) {
+                            // 아군의 방패에서 불꽃 튀기기
+                            for (let k = 0; k < 6; k++) {
+                                sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
         } else {
+            // 내가 쏜 총알이 적을 타격
             for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
                 if (b.weaponType === 'sniper' && b.distanceTraveled < weapons.sniper.minRange) continue;
 
                 if (b.x > e.x - e.width/2 && b.x < e.x + e.width/2 && b.y > e.y - e.height && b.y < e.y) {
                     e.hp -= b.damage;
+                    socket.emit('enemyHit', { enemyId: e.id, damage: b.damage }); // 타격 사실을 서버로 알림
+                    
                     if (b.weaponType !== 'sniper') destroy = true; 
-                    if (e.hp <= 0) {
-                        player.money += e.reward; 
-                        enemies.splice(j, 1);
-                    }
                     if (destroy) break; 
                 }
             }
@@ -1194,7 +1233,7 @@ document.getElementById('startButton').addEventListener('click', () => {
     globalPlayerName = nameInput;
     globalRoomNumber = roomInput;
 
-    // [추가] 서버에 내 정보(이름, 방 번호)를 보내어 방에 입장
+    // 서버에 내 정보(이름, 방 번호)를 보내어 방에 입장
     socket.emit('joinRoom', { name: globalPlayerName, room: globalRoomNumber });
 
     // UI 변경
@@ -1203,6 +1242,10 @@ document.getElementById('startButton').addEventListener('click', () => {
     document.getElementById('ui').style.display = 'block';
 
     document.getElementById('playerInfoUI').innerText = `${globalPlayerName} (Room: ${globalRoomNumber})`;
+
+    // [핵심] 입력받은 룸 번호를 시드로 하여 양쪽 유저가 동일한 지형을 갖도록 초기화
+    terrainSeed = globalRoomNumber * 12345;
+    initTerrain();
 
     // 게임 시작
     isGameStarted = true;
