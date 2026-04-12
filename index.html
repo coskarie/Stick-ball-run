@@ -441,14 +441,23 @@ function spawnBullet(angle, wData, shootY) {
 // --- 게임 엔진 로직 ---
 let lastEnemySpawn = Date.now();
 
+function gameLoop() {
+    update();
+    draw();
+    if (isGameStarted) {
+        requestAnimationFrame(gameLoop);
+    }
+}
+
 // --- 메인 루프 (update) ---
 function update() {
     generateTerrain();
 
+    // [추가] 서버 전송용 내 조준 각도 갱신
     let shootY = player.isCrouching ? player.y - 23 : player.y - 38;
     player.aimAngle = Math.atan2(mouse.y - shootY, (mouse.x + camX) - player.x);
 
-    // 내 상태 서버 전송 (방패 내구도 포함)
+    // [추가] 서버로 내 상태 지속적 전송
     if (isGameStarted) {
         socket.emit('playerUpdate', {
             x: player.x,
@@ -572,7 +581,7 @@ function update() {
         let isSpecial = enemyType > 0;
         
         let newEnemy = {
-            id: Math.random().toString(36).substr(2, 9), // 적 고유 ID 부여
+            id: Math.random().toString(36).substr(2, 9), 
             x: player.x + canvas.width + 100, 
             y: 100, 
             vx: 0, vy: 0, width: 20, height: 50,
@@ -745,7 +754,6 @@ function update() {
                         
                         destroy = true; // 아군이 맞았으니 총알이 통과하지 못하고 사라짐
                         if (op.weapon === 'shield' && op.shieldAmmo > 0) {
-                            // 아군의 방패에서 불꽃 튀기기
                             for (let k = 0; k < 6; k++) {
                                 sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
                             }
