@@ -1,13 +1,12 @@
 const express = require('express');
-const http = require('http'); // 실시간 통신을 위해 내장 http 모듈 추가
+const http = require('http'); 
 const path = require('path');
-const { Server } = require('socket.io'); // Socket.io 불러오기
+const { Server } = require('socket.io');
 
 const app = express();
-const server = http.createServer(app); // Express를 HTTP 서버로 감싸기
-const io = new Server(server); // 서버에 Socket.io 연결
+const server = http.createServer(app); 
+const io = new Server(server);
 
-// Render 배포 환경에서는 process.env.PORT를 사용해야 작동합니다.
 const PORT = process.env.PORT || 3000; 
 
 app.use(express.static(__dirname));
@@ -17,17 +16,20 @@ app.get('/', (req, res) => {
 });
 
 // --- 멀티플레이어 실시간 데이터 관리 ---
-const players = {}; // 접속한 유저들의 상태를 저장할 객체
+const players = {}; 
+const roomHosts = {}; // 각 방의 '방장(Host)' 역할을 하는 유저 소켓 ID 저장
 
-// 유저가 웹사이트에 접속했을 때 발생하는 이벤트
 io.on('connection', (socket) => {
     console.log(`새로운 유저 접속: ${socket.id}`);
 
-    // 1. 로그인 화면에서 '입장하기'를 눌렀을 때 (방 입장)
     socket.on('joinRoom', ({ name, room }) => {
-        socket.join(room); // 해당 룸 번호(1~9)의 채널로 유저를 그룹화
+        socket.join(room);
         
-        // 서버에 해당 유저의 초기 데이터 생성
+        // 룸에 처음 들어온 사람이면 방장으로 임명
+        if (!roomHosts[room]) {
+            roomHosts[room] = socket.id;
+        }
+
         players[socket.id] = {
             id: socket.id,
             name: name,
@@ -38,60 +40,73 @@ io.on('connection', (socket) => {
             maxHp: 1250,
             isCrouching: false,
             aimAngle: 0,
-            vx: 0
+            vx: 0,
+            shieldAmmo: 50 // 방패 동기화를 위한 내구도 추가
         };
 
-        // 방에 있는 '다른 사람들'에게 새로운 유저가 왔다고 알림
-        socket.to(room).emit('newPlayer', players[socket.id]);
-        
-        // 접속한 '본인'에게 현재 방에 있는 모든 유저의 리스트를 전달
         const roomPlayers = Object.values(players).filter(p => p.room === room);
-        socket.emit('currentPlayers', roomPlayers);
         
-        console.log(`[Room ${room}] ${name} 님이 입장하셨습니다.`);
+        // 본인에게 방 정보 및 본인의 방장 여부 전달
+        socket.emit('initData', {
+            isHost: roomHosts[room] === socket.id,
+            players: roomPlayers
+        });
+        
+        socket.to(room).emit('newPlayer', players[socket.id]);
+        console.log(`[Room ${room}] ${name} 님이 입장하셨습니다. (방장: ${roomHosts[room] === socket.id})`);
     });
 
-    // 2. 플레이어가 움직이거나 상태가 변했을 때 (위치, 무기, 숙이기 등)
     socket.on('playerUpdate', (data) => {
         if (players[socket.id]) {
-            // 서버의 데이터 갱신
-            players[socket.id].x = data.x;
-            players[socket.id].y = data.y;
-            players[socket.id].weapon = data.weapon;
-            players[socket.id].hp = data.hp;
-            players[socket.id].isCrouching = data.isCrouching;
-            players[socket.id].aimAngle = data.aimAngle;
-            players[socket.id].isReloading = data.isReloading;
-            players[socket.id].vx = data.vx;
-
-            // 같은 방에 있는 다른 사람들에게 내 변경된 상태를 전달
+            Object.assign(players[socket.id], data);
             socket.to(players[socket.id].room).emit('playerMoved', players[socket.id]);
         }
     });
 
-    // 3. 플레이어가 총을 쐈을 때 (투사체 동기화)
     socket.on('shootBullet', (bulletData) => {
         if (players[socket.id]) {
-            // 내가 쏜 총알의 궤적을 같은 방 사람들에게 전송
             socket.to(players[socket.id].room).emit('remoteBullet', bulletData);
         }
     });
 
-    // 4. 게임을 끄거나 새로고침 했을 때 (연결 종료)
+    // [추가] 방장이 스폰한 적을 방 전체에 동기화
+    socket.on('spawnEnemy', (enemyData) => {
+        if (players[socket.id]) {
+            // 본인 포함 같은 방 모든 유저에게 전송하여 화면에 동시 생성
+            io.to(players[socket.id].room).emit('enemySpawned', enemyData);
+        }
+    });
+
+    // [추가] 적이 총에 맞았을 때 체력 동기화
+    socket.on('enemyHit', ({ enemyId, damage }) => {
+        if (players[socket.id]) {
+            socket.to(players[socket.id].room).emit('updateEnemyHp', { enemyId, damage });
+        }
+    });
+
     socket.on('disconnect', () => {
         console.log(`유저 접속 종료: ${socket.id}`);
         if (players[socket.id]) {
             const room = players[socket.id].room;
-            // 같은 방 사람들에게 해당 유저가 나갔음을 알림 (화면에서 지우기 위함)
-            socket.to(room).emit('playerDisconnected', socket.id);
-            // 서버에서 유저 데이터 삭제
             delete players[socket.id];
+            socket.to(room).emit('playerDisconnected', socket.id);
+
+            // 방장이 나갔을 경우 남은 인원 중 한 명에게 방장 권한 위임
+            if (roomHosts[room] === socket.id) {
+                const remaining = Object.values(players).filter(p => p.room === room);
+                if (remaining.length > 0) {
+                    roomHosts[room] = remaining[0].id;
+                    io.to(remaining[0].id).emit('hostAssigned'); // 새 방장에게 알림
+                    console.log(`[Room ${room}] 방장이 ${remaining[0].name} 님으로 변경되었습니다.`);
+                } else {
+                    delete roomHosts[room]; // 방이 비면 방장 데이터 삭제
+                }
+            }
         }
     });
 });
 
-// app.listen 대신 server.listen을 사용해야 멀티 서버가 작동합니다.
 server.listen(PORT, () => {
-    console.log(`스틱맨 멀티 서버가 시작되었습니다! 포트: ${PORT}`);
+    console.log(`스틱맨 멀티 서버가 시작되었습니다! http://localhost:${PORT}`);
     console.log('종료하려면 Ctrl + C를 누르세요.');
 });
