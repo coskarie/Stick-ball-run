@@ -441,6 +441,10 @@ function spawnBullet(angle, wData, shootY) {
 // --- 게임 엔진 로직 ---
 let lastEnemySpawn = Date.now();
 
+let lastEmitTime = 0;               // 마지막으로 데이터를 보낸 시간
+const TICK_RATE = 15;               // 1초에 보낼 데이터 횟수 (15번)
+const TICK_INTERVAL = 1000 / TICK_RATE; // 약 66.6ms 마다 한 번씩 전송
+
 function gameLoop() {
     update();
     draw();
@@ -457,21 +461,27 @@ function update() {
     let shootY = player.isCrouching ? player.y - 23 : player.y - 38;
     player.aimAngle = Math.atan2(mouse.y - shootY, (mouse.x + camX) - player.x);
 
+
+
     // [추가] 서버로 내 상태 지속적 전송
     if (isGameStarted) {
-        socket.emit('playerUpdate', {
-            x: player.x,
-            y: player.y,
-            weapon: player.weapon,
-            hp: player.hp,
-            maxHp: player.maxHp,
-            isCrouching: player.isCrouching,
-            aimAngle: player.aimAngle,
-            isReloading: player.isReloading,
-            vx: player.vx,
-            name: globalPlayerName,
-            shieldAmmo: player.ammo['shield'] 
-        });
+        const now = Date.now();
+        if (now - lastEmitTime > TICK_INTERVAL) { // 66.6ms가 지났을 때만 전송
+            socket.emit('playerUpdate', {
+                x: player.x,
+                y: player.y,
+                weapon: player.weapon,
+                hp: player.hp,
+                maxHp: player.maxHp,
+                isCrouching: player.isCrouching,
+                aimAngle: player.aimAngle,
+                isReloading: player.isReloading,
+                vx: player.vx,
+                name: globalPlayerName,
+                shieldAmmo: player.ammo['shield'] 
+            });
+            lastEmitTime = now; // 전송 후 마지막 시간 갱신
+        }
     }
 
     for (let i = sparks.length - 1; i >= 0; i--) {
