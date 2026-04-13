@@ -1143,7 +1143,7 @@ function drawStickman(ctx, entity, aimTarget, isPlayer, playerName = null) {
     }
 }
 
-// --- 렌더링 ---
+// --- 렌더링 ---// --- 렌더링 ---
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -1177,14 +1177,14 @@ function draw() {
         ctx.stroke();
     }
 
-    // [추가] 바리케이드 그리기 (갈색 네모 형태)
+    // 바리케이드 그리기 (갈색 네모 형태)
     for (let bar of barricades) {
         // 본체 그리기
-        ctx.fillStyle = "#8B4513"; // 갈색
+        ctx.fillStyle = "#8B4513"; 
         ctx.fillRect(bar.x - bar.width/2, bar.y - bar.height, bar.width, bar.height);
         
         // 윤곽선 그리기
-        ctx.strokeStyle = "#5C3A21"; // 진한 갈색
+        ctx.strokeStyle = "#5C3A21"; 
         ctx.lineWidth = 2;
         ctx.strokeRect(bar.x - bar.width/2, bar.y - bar.height, bar.width, bar.height);
         
@@ -1206,8 +1206,24 @@ function draw() {
         ctx.fillRect(e.x - e.width/2, e.y - 60, e.width * (Math.max(0, e.hp) / e.maxHp), 5);
     }
 
-    // 내 캐릭터 렌더링
-    const mouseWorldPos = { x: mouse.x + camX, y: mouse.y };
+    // [추가/수정] 반동을 적용한 시각적 마우스 좌표 계산
+    // 실제 마우스 위치가 아니라, 반동 수치(player.recoil)만큼 위로 들린 가상의 타겟을 만듭니다.
+    let shootY = player.isCrouching ? player.y - 23 : player.y - 38;
+    let dx = (mouse.x + camX) - player.x;
+    let dy = mouse.y - shootY;
+    let dist = Math.sqrt(dx*dx + dy*dy); // 플레이어와 실제 마우스 사이의 거리
+    let baseAngle = Math.atan2(dy, dx); // 원래 조준하던 각도
+    let recoiledAngle = baseAngle - (player.recoil || 0); // 반동으로 인해 위로 들린 최종 각도
+    
+    // 들린 각도를 바탕으로 새로운 타겟 좌표(월드 좌표계) 생성
+    let recoiledMouseXWorld = player.x + Math.cos(recoiledAngle) * dist;
+    let recoiledMouseY = shootY + Math.sin(recoiledAngle) * dist;
+    
+    // 화면에 그리기 위한 스크린 X 좌표
+    let recoiledMouseScreenX = recoiledMouseXWorld - camX;
+
+    // 내 캐릭터 렌더링 (실제 마우스가 아닌 반동이 적용된 가상의 좌표를 넘겨줌)
+    const mouseWorldPos = { x: recoiledMouseXWorld, y: recoiledMouseY };
     drawStickman(ctx, player, mouseWorldPos, true);
 
     // 같은 방 다른 유저 렌더링
@@ -1247,23 +1263,24 @@ function draw() {
 
     ctx.restore(); 
 
+    // [수정] 크로스헤어(빨간 과녁) 그리기 시 실제 마우스 좌표 대신 반동이 적용된 좌표 사용
     ctx.strokeStyle = "rgba(255, 0, 0, 0.8)";
     ctx.lineWidth = 2;
     
     ctx.beginPath();
-    ctx.arc(mouse.x, mouse.y, 12, 0, Math.PI * 2);
+    ctx.arc(recoiledMouseScreenX, recoiledMouseY, 12, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.fillStyle = "red";
     ctx.beginPath();
-    ctx.arc(mouse.x, mouse.y, 2, 0, Math.PI * 2);
+    ctx.arc(recoiledMouseScreenX, recoiledMouseY, 2, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.beginPath();
-    ctx.moveTo(mouse.x, mouse.y - 20); ctx.lineTo(mouse.x, mouse.y - 8); 
-    ctx.moveTo(mouse.x, mouse.y + 20); ctx.lineTo(mouse.x, mouse.y + 8); 
-    ctx.moveTo(mouse.x - 20, mouse.y); ctx.lineTo(mouse.x - 8, mouse.y); 
-    ctx.moveTo(mouse.x + 20, mouse.y); ctx.lineTo(mouse.x + 8, mouse.y); 
+    ctx.moveTo(recoiledMouseScreenX, recoiledMouseY - 20); ctx.lineTo(recoiledMouseScreenX, recoiledMouseY - 8); 
+    ctx.moveTo(recoiledMouseScreenX, recoiledMouseY + 20); ctx.lineTo(recoiledMouseScreenX, recoiledMouseY + 8); 
+    ctx.moveTo(recoiledMouseScreenX - 20, recoiledMouseY); ctx.lineTo(recoiledMouseScreenX - 8, recoiledMouseY); 
+    ctx.moveTo(recoiledMouseScreenX + 20, recoiledMouseY); ctx.lineTo(recoiledMouseScreenX + 8, recoiledMouseY); 
     ctx.stroke();
 }
 
