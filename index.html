@@ -154,19 +154,20 @@ socket.on('hostAssigned', () => {
 socket.on('newPlayer', (p) => { otherPlayers[p.id] = p; });
 socket.on('playerMoved', (data) => { if (otherPlayers[data.id]) otherPlayers[data.id] = data; });
 socket.on('playerDisconnected', (id) => { delete otherPlayers[id]; });
-socket.on('remoteBullet', (bData) => { bullets.push(bData); });
-
-// 적 스폰 이벤트 수신 (내가 방장이어도 이 이벤트를 통해 적을 동기화하여 등록함)
+socket.on('remoteBullet', (bData) => { 
+    if (bData.weaponType === 'barricade') {
+        barricades.push(bData);
+    } else {
+        bullets.push(bData); 
+    }
+});
 socket.on('enemySpawned', (eData) => {
     enemies.push(eData);
 });
-
-// 다른 유저가 적을 맞췄을 때 체력 동기화
 socket.on('updateEnemyHp', ({ enemyId, damage }) => {
     let e = enemies.find(en => en.id === enemyId);
     if (e) e.hp -= damage;
 });
-// ------------------------------------
 
 // --- 게임 상태 및 입력 ---
 const keys = {};
@@ -182,9 +183,43 @@ window.addEventListener('keydown', e => {
     if (!isGameStarted) return; 
     keys[e.key.toLowerCase()] = true; 
 
-    // [추가] Z키 - 천천히 가기 온오프 토글
+    // Z키 - 천천히 가기 온오프 토글
     if (e.key.toLowerCase() === 'z') {
         player.isSlowWalking = !player.isSlowWalking;
+    }
+
+    // [추가] F키 - 바리케이드 하강 설치 (적 공격 방어용)
+    if (e.key.toLowerCase() === 'f') {
+        const now = Date.now();
+        // 3초 쿨타임 (무한 생성 방지)
+        if (now - player.lastBarricade > 3000) {
+            player.lastBarricade = now;
+            
+            // 현재 마우스를 향한 조준 각도를 계산하여 앞(오른쪽/왼쪽)을 판별
+            let shootY = player.isCrouching ? player.y - 23 : player.y - 38;
+            let aimAngle = Math.atan2(mouse.y - shootY, (mouse.x + camX) - player.x);
+            let facing = (Math.cos(aimAngle) > 0) ? 1 : -1;
+            
+            let targetX = player.x + (facing * 70); // 플레이어 바로 앞 70px 위치
+            let targetY = getTerrainY(targetX);     // 해당 위치의 땅 높이
+            
+            const newBarricade = {
+                id: Math.random().toString(36).substr(2, 9),
+                x: targetX,
+                y: targetY - 600, // 하늘 높이에서 시작 (하강 이펙트)
+                targetY: targetY,
+                width: 30, // 네모 형태의 두께
+                height: 60, // 스틱맨(50)을 가릴 수 있는 높이
+                hp: 500,
+                maxHp: 500,
+                weaponType: 'barricade' // [트릭] 서버를 속이기 위해 총알인 척 발송
+            };
+            
+            barricades.push(newBarricade);
+            if (isGameStarted) {
+                socket.emit('shootBullet', newBarricade); // 서버에 동기화
+            }
+        }
     }
 
     if (e.key.toLowerCase() === 'r' && !player.isReloading) {
@@ -267,12 +302,14 @@ const player = {
     crouchStamina: 300,    // [추가] 크로치 스태미너
     maxCrouchStamina: 300, // [추가] 최대 크로치 스태미너
     aimAngle: 0, // [추가] 서버 전송용 조준 각도
-    isSlowWalking: false // [추가] 천천히 걷기 상태 (Z키 온오프)
+    isSlowWalking: false, // [추가] 천천히 걷기 상태 (Z키 온오프)
+    lastBarricade: 0 // [추가] 바리케이드 쿨타임용 변수
 };
 
 const bullets = [];
 const enemies = [];
 const sparks = []; 
+const barricades = []; // [추가] 설치된 바리케이드를 관리하는 배열
 
 // --- 시드 기반 난수 생성기 (지형 동기화) ---
 let terrainSeed = 1;
@@ -477,9 +514,23 @@ function update() {
                 isReloading: player.isReloading, vx: player.vx,
                 name: globalPlayerName,
                 shieldAmmo: player.ammo['shield'],
-                isSlowWalking: player.isSlowWalking // 서버에도 상태 전달
+                isSlowWalking: player.isSlowWalking
             });
             lastEmitTime = now;
+        }
+    }
+
+    // [추가] 바리케이드 하강 및 파괴 로직 업데이트
+    for (let i = barricades.length - 1; i >= 0; i--) {
+        let bar = barricades[i];
+        if (bar.y < bar.targetY) {
+            bar.y += 30; // 하늘에서 떨어지는 속도
+            if (bar.y > bar.targetY) bar.y = bar.targetY;
+        }
+        if (bar.hp <= 0) {
+            // 부서질 때 파편 이펙트
+            for (let k = 0; k < 15; k++) sparks.push({ x: bar.x, y: bar.y - 30, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 10, life: 15 + Math.random() * 15 });
+            barricades.splice(i, 1);
         }
     }
 
@@ -513,11 +564,9 @@ function update() {
         }
     }
 
-    // [수정] 이동 속도 결정 로직
     let currentSpeed = player.speed;
-    
     if (player.isSlowWalking) {
-        currentSpeed *= 0.3; // 천천히 걷기 시 속도 30%로 제한 (저격용)
+        currentSpeed *= 0.3; 
     }
     if (player.isCrouching) {
         currentSpeed *= 0.2; 
@@ -665,46 +714,69 @@ function update() {
         let b = bullets[i];
         b.x += b.vx; b.y += b.vy; b.distanceTraveled += Math.sqrt(b.vx*b.vx + b.vy*b.vy);
         let destroy = false;
+        
         if (b.isEnemy) {
             let hitSomeone = false;
             let pHeight = player.isCrouching ? 35 : player.height;
             let bRadius = b.weaponType === 'sniper' ? 5 : 3;
-            if (b.x + bRadius > player.x - player.width/2 && b.x - bRadius < player.x + player.width/2 && 
-                b.y + bRadius > player.y - pHeight && b.y - bRadius < player.y) {
-                hitSomeone = true;
-                if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
-                    player.ammo['shield']--; destroy = true;          
-                    for (let k = 0; k < 6; k++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
-                } else {
-                    player.hp -= b.damage; destroy = true;
-                    if (player.hp <= 0) { alert("게임 오버!"); location.reload(); }
+            
+            // [추가] 1. 바리케이드가 적의 공격을 방어하는지 먼저 체크
+            let hitBarricade = false;
+            for (let k = 0; k < barricades.length; k++) {
+                let bar = barricades[k];
+                if (b.x + bRadius > bar.x - bar.width/2 && 
+                    b.x - bRadius < bar.x + bar.width/2 && 
+                    b.y + bRadius > bar.y - bar.height && 
+                    b.y - bRadius < bar.y) {
+                    
+                    bar.hp -= b.damage; // 바리케이드 체력 감소
+                    hitBarricade = true;
+                    destroy = true; // 총알 소멸
+                    
+                    // 바리케이드 피격 스파크 이펙트
+                    for (let s = 0; s < 5; s++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
+                    break;
                 }
             }
-            if (!hitSomeone) {
-                for (let id in otherPlayers) {
-                    let op = otherPlayers[id];
-                    let opHeight = op.isCrouching ? 35 : 50; 
-                    if (b.x + bRadius > op.x - 10 && b.x - bRadius < op.x + 10 && b.y + bRadius > op.y - opHeight && b.y - bRadius < op.y) {
-                        destroy = true;
-                        if (op.weapon === 'shield' && op.shieldAmmo > 0) {
-                            for (let k = 0; k < 6; k++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
+
+            // 2. 바리케이드에 안 막혔다면 플레이어 피격 체크
+            if (!hitBarricade) {
+                if (b.x + bRadius > player.x - player.width/2 && b.x - bRadius < player.x + player.width/2 && 
+                    b.y + bRadius > player.y - pHeight && b.y - bRadius < player.y) {
+                    hitSomeone = true;
+                    if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
+                        player.ammo['shield']--; destroy = true;          
+                        for (let k = 0; k < 6; k++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
+                    } else {
+                        player.hp -= b.damage; destroy = true;
+                        if (player.hp <= 0) { alert("게임 오버!"); location.reload(); }
+                    }
+                }
+                if (!hitSomeone) {
+                    for (let id in otherPlayers) {
+                        let op = otherPlayers[id];
+                        let opHeight = op.isCrouching ? 35 : 50; 
+                        if (b.x + bRadius > op.x - 10 && b.x - bRadius < op.x + 10 && b.y + bRadius > op.y - opHeight && b.y - bRadius < op.y) {
+                            destroy = true;
+                            if (op.weapon === 'shield' && op.shieldAmmo > 0) {
+                                for (let k = 0; k < 6; k++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
             }
         } else {
-            // 내가 쏜 총알이 적을 타격
+            // 내가 쏜 총알이 적을 타격 (바리케이드 로직이 없으므로 내 공격은 바리케이드를 그대로 관통함)
             for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
                 if (b.weaponType === 'sniper' && b.distanceTraveled < weapons.sniper.minRange) continue;
-                // [수정] 눈에 보이는 스틱맨 비율(튀어나온 머리/기울어진 몸)에 맞춰 히트박스 넉넉하게 확장
-                let hitWidth = e.width + 14;  // 앞으로 기울인 얼굴과 팔을 맞출 수 있게 너비 14px 확장
-                let hitHeight = e.height + 15; // 정수리 위쪽까지 맞출 수 있게 높이 15px 확장
+                let hitWidth = e.width + 14;  
+                let hitHeight = e.height + 15; 
 
                 if (b.x > e.x - hitWidth/2 && b.x < e.x + hitWidth/2 && b.y > e.y - hitHeight && b.y < e.y) {
                     e.hp -= b.damage;
-                    socket.emit('enemyHit', { enemyId: e.id, damage: b.damage }); // 타격 사실을 서버로 알림
+                    socket.emit('enemyHit', { enemyId: e.id, damage: b.damage }); 
                     
                     if (b.weaponType !== 'sniper') destroy = true; 
                     if (destroy) break; 
@@ -1078,6 +1150,26 @@ function draw() {
         ctx.stroke();
     }
 
+    // [추가] 바리케이드 그리기 (갈색 네모 형태)
+    for (let bar of barricades) {
+        // 본체 그리기
+        ctx.fillStyle = "#8B4513"; // 갈색
+        ctx.fillRect(bar.x - bar.width/2, bar.y - bar.height, bar.width, bar.height);
+        
+        // 윤곽선 그리기
+        ctx.strokeStyle = "#5C3A21"; // 진한 갈색
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bar.x - bar.width/2, bar.y - bar.height, bar.width, bar.height);
+        
+        // 체력바 렌더링 (땅에 닿았을 때만 표시)
+        if (bar.y >= bar.targetY) {
+            ctx.fillStyle = "red";
+            ctx.fillRect(bar.x - bar.width/2, bar.y - bar.height - 10, bar.width, 4);
+            ctx.fillStyle = "#0f0";
+            ctx.fillRect(bar.x - bar.width/2, bar.y - bar.height - 10, bar.width * (Math.max(0, bar.hp) / bar.maxHp), 4);
+        }
+    }
+
     for (let e of enemies) {
         drawStickman(ctx, e, player, false);
         
@@ -1091,10 +1183,9 @@ function draw() {
     const mouseWorldPos = { x: mouse.x + camX, y: mouse.y };
     drawStickman(ctx, player, mouseWorldPos, true);
 
-    // [추가] 같은 방 다른 유저 렌더링
+    // 같은 방 다른 유저 렌더링
     for (let id in otherPlayers) {
         let op = otherPlayers[id];
-        // 서버에서 받아온 조준 각도(aimAngle)를 기반으로 가짜 마우스 좌표(aimTarget) 생성
         let opAimTarget = {
             x: op.x + Math.cos(op.aimAngle || 0) * 100,
             y: (op.y - 38) + Math.sin(op.aimAngle || 0) * 100
