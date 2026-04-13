@@ -182,6 +182,11 @@ window.addEventListener('keydown', e => {
     if (!isGameStarted) return; 
     keys[e.key.toLowerCase()] = true; 
 
+    // [추가] Z키 - 천천히 가기 온오프 토글
+    if (e.key.toLowerCase() === 'z') {
+        player.isSlowWalking = !player.isSlowWalking;
+    }
+
     if (e.key.toLowerCase() === 'r' && !player.isReloading) {
         const wData = weapons[player.weapon];
         if (player.ammo[player.weapon] < wData.maxAmmo) {
@@ -197,6 +202,7 @@ window.addEventListener('keydown', e => {
         }
     }
 });
+
 window.addEventListener('keyup', e => { 
     if (!isGameStarted) return;
     keys[e.key.toLowerCase()] = false; 
@@ -260,7 +266,8 @@ const player = {
     isCrouching: false,
     crouchStamina: 180,    
     maxCrouchStamina: 180,
-    aimAngle: 0 // [추가] 서버 전송용 조준 각도
+    aimAngle: 0, // [추가] 서버 전송용 조준 각도
+    isSlowWalking: false // [추가] 천천히 걷기 상태 (Z키 온오프)
 };
 
 const bullets = [];
@@ -457,38 +464,28 @@ function gameLoop() {
 function update() {
     generateTerrain();
 
-    // [추가] 서버 전송용 내 조준 각도 갱신
     let shootY = player.isCrouching ? player.y - 23 : player.y - 38;
     player.aimAngle = Math.atan2(mouse.y - shootY, (mouse.x + camX) - player.x);
 
-
-
-    // [추가] 서버로 내 상태 지속적 전송
     if (isGameStarted) {
         const now = Date.now();
-        if (now - lastEmitTime > TICK_INTERVAL) { // 66.6ms가 지났을 때만 전송
+        if (now - lastEmitTime > TICK_INTERVAL) {
             socket.emit('playerUpdate', {
-                x: player.x,
-                y: player.y,
-                weapon: player.weapon,
-                hp: player.hp,
-                maxHp: player.maxHp,
-                isCrouching: player.isCrouching,
-                aimAngle: player.aimAngle,
-                isReloading: player.isReloading,
-                vx: player.vx,
+                x: player.x, y: player.y,
+                weapon: player.weapon, hp: player.hp, maxHp: player.maxHp,
+                isCrouching: player.isCrouching, aimAngle: player.aimAngle,
+                isReloading: player.isReloading, vx: player.vx,
                 name: globalPlayerName,
-                shieldAmmo: player.ammo['shield'] 
+                shieldAmmo: player.ammo['shield'],
+                isSlowWalking: player.isSlowWalking // 서버에도 상태 전달
             });
-            lastEmitTime = now; // 전송 후 마지막 시간 갱신
+            lastEmitTime = now;
         }
     }
 
     for (let i = sparks.length - 1; i >= 0; i--) {
         let s = sparks[i];
-        s.x += s.vx;
-        s.y += s.vy;
-        s.life -= 1;
+        s.x += s.vx; s.y += s.vy; s.life -= 1;
         if (s.life <= 0) sparks.splice(i, 1);
     }
 
@@ -496,16 +493,12 @@ function update() {
         if (player.crouchStamina > 0) {
             player.isCrouching = true;
             player.crouchStamina -= 1; 
-        } else {
-            player.isCrouching = false; 
-        }
+        } else { player.isCrouching = false; }
     } else {
         player.isCrouching = false;
         if (player.crouchStamina < player.maxCrouchStamina) {
             player.crouchStamina += 0.75; 
-            if (player.crouchStamina > player.maxCrouchStamina) {
-                player.crouchStamina = player.maxCrouchStamina;
-            }
+            if (player.crouchStamina > player.maxCrouchStamina) player.crouchStamina = player.maxCrouchStamina;
         }
     }
 
@@ -513,7 +506,6 @@ function update() {
         const wData = weapons[player.weapon];
         const elapsed = Date.now() - player.reloadStart;
         player.reloadProgress = Math.min(1, elapsed / wData.reloadTime);
-        
         if (player.reloadProgress >= 1) {
             player.money -= wData.reloadCost; 
             player.ammo[player.weapon] = wData.maxAmmo; 
@@ -521,7 +513,12 @@ function update() {
         }
     }
 
+    // [수정] 이동 속도 결정 로직
     let currentSpeed = player.speed;
+    
+    if (player.isSlowWalking) {
+        currentSpeed *= 0.3; // 천천히 걷기 시 속도 30%로 제한 (저격용)
+    }
     if (player.isCrouching) {
         currentSpeed *= 0.2; 
     }
@@ -548,18 +545,12 @@ function update() {
 
     const groundY = getTerrainY(player.x);
     if (player.y >= groundY) {
-        player.y = groundY;
-        player.vy = 0;
-        player.isGrounded = true;
-    } else {
-        player.isGrounded = false;
-    }
+        player.y = groundY; player.vy = 0; player.isGrounded = true;
+    } else { player.isGrounded = false; }
 
-    if (player.isGrounded && Math.abs(player.vx) > 0.1 && !player.isCrouching) {
-        player.walkTime += (player.vx > 0 ? 0.2 : -0.2); 
-    } else if (player.isGrounded) {
-        player.walkTime = 0; 
-    }
+    if (player.isGrounded && Math.abs(player.vx) > 0.1 && !player.isCrouching) player.walkTime += (player.vx > 0 ? 0.2 : -0.2); 
+    else if (player.isGrounded) player.walkTime = 0; 
+    
     if (player.shootTimer > 0) player.shootTimer -= 16;
 
     camX = player.x - canvas.width / 4; 
@@ -573,16 +564,13 @@ function update() {
     document.getElementById('hpUI').innerText = `${Math.max(0, player.hp)} / ${player.maxHp}`; 
 
     let currentMeters = Math.floor(maxDistance / 50);
-    let spawnCooldown = 5000; 
-    let specialChance = 0.05; 
-    let enemyLevel = 1;
+    let spawnCooldown = 5000; let specialChance = 0.05; let enemyLevel = 1;
 
     if (currentMeters < 1000) { spawnCooldown = 5000; specialChance = 0.01; enemyLevel = 1; } 
     else if (currentMeters < 2000) { spawnCooldown = 3000; specialChance = 0.05; enemyLevel = 3; } 
     else if (currentMeters < 3000) { spawnCooldown = 1000; specialChance = 0.10; enemyLevel = 5; } 
     else { spawnCooldown = 500; specialChance = 0.20; enemyLevel = 8; }
 
-    // [핵심] 방장(Host)일 경우에만 적을 생성하고 서버로 동기화
     if (isHost && Date.now() - lastEnemySpawn > spawnCooldown) {
         let enemyType = 0; 
         if (Math.random() < specialChance) {
@@ -616,10 +604,7 @@ function update() {
             enemies.splice(i, 1);
             continue;
         }
-
         e.vy += player.gravity;
-        
-        // 멀티플레이어 타겟팅 AI (나와 다른 유저 중 제일 가까운 사람 타겟팅)
         let target = player;
         let minDist = Math.abs(e.x - player.x);
         for (let id in otherPlayers) {
@@ -630,179 +615,105 @@ function update() {
                 target = op;
             }
         }
-
         let dist = e.x - target.x; 
         let absDist = Math.abs(dist);
         let dir = dist > 0 ? -1 : 1; 
         let baseSpeed = e.maxHp >= 60 ? 2 : 1.25; 
-        
         if (e.enemyType === 2) {
             baseSpeed *= 1.6; 
-            if (absDist > 40) {
-                e.vx = baseSpeed * dir; 
-            } else {
-                e.vx = 0; 
-            }
-
+            if (absDist > 40) e.vx = baseSpeed * dir; 
+            else e.vx = 0; 
             if (absDist <= 50 && Date.now() - (e.lastShot || 0) > 1000) {
                 e.lastShot = Date.now();
                 e.attackTimer = 15; 
-                
-                // 타겟이 나일 때만 체력 깎임 처리 (중복 데미지 방지)
                 if (target === player) {
                     if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
                         player.ammo['shield']--;
-                        for (let k = 0; k < 10; k++) {
-                            sparks.push({ x: player.x, y: player.y - 25, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 15 + Math.random() * 10 });
-                        }
+                        for (let k = 0; k < 10; k++) sparks.push({ x: player.x, y: player.y - 25, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 15 + Math.random() * 10 });
                     } else {
                         player.hp -= 20; 
-                        if (player.hp <= 0) {
-                            alert("체력이 0이 되었습니다. 게임 오버!");
-                            location.reload(); 
-                        }
+                        if (player.hp <= 0) { alert("게임 오버!"); location.reload(); }
                     }
                 }
             }
         } else {
-            if (absDist > 800) {
-                e.vx = baseSpeed * dir; 
-            } else if (absDist < 450) {
-                e.vx = (baseSpeed * 0.8) * (-dir); 
-            } else {
-                e.vx = 0; 
-            }
-            
+            if (absDist > 800) e.vx = baseSpeed * dir; 
+            else if (absDist < 450) e.vx = (baseSpeed * 0.8) * (-dir); 
+            else e.vx = 0; 
             if (absDist <= 800 && Date.now() - (e.lastShot || 0) > 2000) { 
-                e.lastShot = Date.now();
-                e.shootTimer = 100; 
-                
+                e.lastShot = Date.now(); e.shootTimer = 100; 
                 const targetHeadY = target.y - 45; 
                 const angle = Math.atan2(targetHeadY - (e.y - 38), target.x - e.x);
-                
                 bullets.push({
-                    x: e.x, y: e.y - 38,
-                    vx: Math.cos(angle) * 12,
-                    vy: Math.sin(angle) * 12,
-                    damage: 5, 
-                    color: 'orange',
-                    distanceTraveled: 0,
-                    weaponType: 'pistol',
-                    pierceRemaining: 0,
-                    isEnemy: true 
+                    x: e.x, y: e.y - 38, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12,
+                    damage: 5, color: 'orange', distanceTraveled: 0, weaponType: 'pistol',
+                    pierceRemaining: 0, isEnemy: true 
                 });
             }
         }
-        
-        e.x += e.vx; 
-        e.y += e.vy;
+        e.x += e.vx; e.y += e.vy;
         if (e.vx !== 0) e.walkTime += (e.vx > 0 ? 0.2 : -0.2); 
         if (e.shootTimer > 0) e.shootTimer -= 16; 
         if (e.attackTimer > 0) e.attackTimer -= 1; 
-
         const eGroundY = getTerrainY(e.x);
-        if (e.y >= eGroundY) {
-            e.y = eGroundY;
-            e.vy = 0;
-            e.isGrounded = true; 
-        } else {
-            e.isGrounded = false;
-        }
-        
+        if (e.y >= eGroundY) { e.y = eGroundY; e.vy = 0; e.isGrounded = true; } 
+        else { e.isGrounded = false; }
         if (e.x < camX - 1000 || e.y > 2000) enemies.splice(i, 1);
     }
 
-    // --- 피격 판정 (방패 공유 시스템) ---
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
-        b.x += b.vx;
-        b.y += b.vy;
-        b.distanceTraveled += Math.sqrt(b.vx*b.vx + b.vy*b.vy);
+        b.x += b.vx; b.y += b.vy; b.distanceTraveled += Math.sqrt(b.vx*b.vx + b.vy*b.vy);
         let destroy = false;
-
         if (b.isEnemy) {
             let hitSomeone = false;
             let pHeight = player.isCrouching ? 35 : player.height;
             let bRadius = b.weaponType === 'sniper' ? 5 : 3;
-
-            // 1. 내가 맞거나 막았는지 체크
-            if (b.x + bRadius > player.x - player.width/2 && 
-                b.x - bRadius < player.x + player.width/2 && 
-                b.y + bRadius > player.y - pHeight && 
-                b.y - bRadius < player.y) {
-                
+            if (b.x + bRadius > player.x - player.width/2 && b.x - bRadius < player.x + player.width/2 && 
+                b.y + bRadius > player.y - pHeight && b.y - bRadius < player.y) {
                 hitSomeone = true;
                 if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
-                    player.ammo['shield']--; 
-                    destroy = true;          
-                    
-                    for (let k = 0; k < 6; k++) {
-                        sparks.push({
-                            x: b.x, y: b.y,
-                            vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, 
-                            vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8,
-                            life: 10 + Math.random() * 10
-                        });
-                    }
+                    player.ammo['shield']--; destroy = true;          
+                    for (let k = 0; k < 6; k++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
                 } else {
-                    player.hp -= b.damage;
-                    destroy = true;
-                    if (player.hp <= 0) {
-                        alert("체력이 0이 되었습니다. 게임 오버!");
-                        location.reload(); 
-                    }
+                    player.hp -= b.damage; destroy = true;
+                    if (player.hp <= 0) { alert("게임 오버!"); location.reload(); }
                 }
             }
-
-            // 2. 다른 아군이 맞거나 막았는지 체크 (내가 안 맞았을 때)
             if (!hitSomeone) {
                 for (let id in otherPlayers) {
                     let op = otherPlayers[id];
                     let opHeight = op.isCrouching ? 35 : 50; 
-                    if (b.x + bRadius > op.x - 10 && b.x - bRadius < op.x + 10 && 
-                        b.y + bRadius > op.y - opHeight && b.y - bRadius < op.y) {
-                        
-                        destroy = true; // 아군이 맞았으니 총알이 통과하지 못하고 사라짐
+                    if (b.x + bRadius > op.x - 10 && b.x - bRadius < op.x + 10 && b.y + bRadius > op.y - opHeight && b.y - bRadius < op.y) {
+                        destroy = true;
                         if (op.weapon === 'shield' && op.shieldAmmo > 0) {
-                            for (let k = 0; k < 6; k++) {
-                                sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
-                            }
+                            for (let k = 0; k < 6; k++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
                         }
                         break;
                     }
                 }
             }
         } else {
-            // 내가 쏜 총알이 적을 타격
             for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
                 if (b.weaponType === 'sniper' && b.distanceTraveled < weapons.sniper.minRange) continue;
-
                 if (b.x > e.x - e.width/2 && b.x < e.x + e.width/2 && b.y > e.y - e.height && b.y < e.y) {
                     e.hp -= b.damage;
-                    socket.emit('enemyHit', { enemyId: e.id, damage: b.damage }); // 타격 사실을 서버로 알림
-                    
+                    socket.emit('enemyHit', { enemyId: e.id, damage: b.damage });
                     if (b.weaponType !== 'sniper') destroy = true; 
                     if (destroy) break; 
                 }
             }
         }
-
         if (!destroy) {
             let ty = getTerrainY(b.x);
             if (b.y > ty) {
-                if (b.pierceRemaining > 0) {
-                    b.pierceRemaining--; 
-                    b.damage *= 0.7; 
-                } else {
-                    destroy = true;
-                }
+                if (b.pierceRemaining > 0) { b.pierceRemaining--; b.damage *= 0.7; } 
+                else { destroy = true; }
             }
         }
-
         let maxRange = (b.weaponType === 'shotgun') ? 400 : 2000;
         if (b.distanceTraveled > maxRange || b.x > camX + canvas.width * 1.5) destroy = true;
-        
         if (destroy) bullets.splice(i, 1);
     }
 }
