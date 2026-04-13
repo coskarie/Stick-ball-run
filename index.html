@@ -623,7 +623,7 @@ function update() {
             baseSpeed *= 1.6; 
             if (absDist > 40) e.vx = baseSpeed * dir; 
             else e.vx = 0; 
-            if (absDist <= 50 && Date.now() - (e.lastShot || 0) > 1000) {
+            if (absDist <= 40 && Date.now() - (e.lastShot || 0) > 1000) {
                 e.lastShot = Date.now();
                 e.attackTimer = 15; 
                 if (target === player) {
@@ -637,10 +637,10 @@ function update() {
                 }
             }
         } else {
-            if (absDist > 800) e.vx = baseSpeed * dir; 
+            if (absDist > 600) e.vx = baseSpeed * dir; 
             else if (absDist < 450) e.vx = (baseSpeed * 0.8) * (-dir); 
             else e.vx = 0; 
-            if (absDist <= 800 && Date.now() - (e.lastShot || 0) > 2000) { 
+            if (absDist <= 600 && Date.now() - (e.lastShot || 0) > 2000) { 
                 e.lastShot = Date.now(); e.shootTimer = 100; 
                 const targetHeadY = target.y - 45; 
                 const angle = Math.atan2(targetHeadY - (e.y - 38), target.x - e.x);
@@ -694,12 +694,18 @@ function update() {
                 }
             }
         } else {
+            // 내가 쏜 총알이 적을 타격
             for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
                 if (b.weaponType === 'sniper' && b.distanceTraveled < weapons.sniper.minRange) continue;
-                if (b.x > e.x - e.width/2 && b.x < e.x + e.width/2 && b.y > e.y - e.height && b.y < e.y) {
+                // [수정] 눈에 보이는 스틱맨 비율(튀어나온 머리/기울어진 몸)에 맞춰 히트박스 넉넉하게 확장
+                let hitWidth = e.width + 14;  // 앞으로 기울인 얼굴과 팔을 맞출 수 있게 너비 14px 확장
+                let hitHeight = e.height + 15; // 정수리 위쪽까지 맞출 수 있게 높이 15px 확장
+
+                if (b.x > e.x - hitWidth/2 && b.x < e.x + hitWidth/2 && b.y > e.y - hitHeight && b.y < e.y) {
                     e.hp -= b.damage;
-                    socket.emit('enemyHit', { enemyId: e.id, damage: b.damage });
+                    socket.emit('enemyHit', { enemyId: e.id, damage: b.damage }); // 타격 사실을 서버로 알림
+                    
                     if (b.weaponType !== 'sniper') destroy = true; 
                     if (destroy) break; 
                 }
