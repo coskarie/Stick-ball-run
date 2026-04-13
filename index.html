@@ -181,48 +181,68 @@ let globalRoomNumber = "";
 
 window.addEventListener('keydown', e => { 
     if (!isGameStarted) return; 
-    keys[e.key.toLowerCase()] = true; 
+    const key = e.key.toLowerCase();
+    keys[key] = true; 
+    const now = Date.now();
+
+    // [추가] 방향키 연타 대쉬 로직 (A키 - 왼쪽)
+    if (key === 'a') {
+        // 0.25초 이내 연타 감지 && 1초(1000ms) 쿨타임 확인
+        if (now - player.lastTapA < 250 && now - player.lastDashTime > 1000) {
+            player.lastDashTime = now;
+            player.dashTimer = 12; // 12프레임 동안 대쉬 유지
+            player.dashDirection = -1;
+            
+            // 모래먼지 이펙트 생성 (이동 반대 방향으로 튀게 설정)
+            for (let i = 0; i < 5; i++) {
+                sparks.push({ type: 'dust', x: player.x, y: player.y, vx: Math.random() * 6 + 2, vy: -(Math.random() * 4 + 1), life: 20 + Math.random() * 10, size: 15 + Math.random() * 10 });
+            }
+        }
+        player.lastTapA = now;
+    }
+    
+    // [추가] 방향키 연타 대쉬 로직 (D키 - 오른쪽)
+    if (key === 'd') {
+        if (now - player.lastTapD < 250 && now - player.lastDashTime > 1000) {
+            player.lastDashTime = now;
+            player.dashTimer = 12;
+            player.dashDirection = 1;
+            
+            for (let i = 0; i < 5; i++) {
+                sparks.push({ type: 'dust', x: player.x, y: player.y, vx: -(Math.random() * 6 + 2), vy: -(Math.random() * 4 + 1), life: 20 + Math.random() * 10, size: 15 + Math.random() * 10 });
+            }
+        }
+        player.lastTapD = now;
+    }
 
     // Z키 - 천천히 가기 온오프 토글
-    if (e.key.toLowerCase() === 'z') {
+    if (key === 'z') {
         player.isSlowWalking = !player.isSlowWalking;
     }
 
-    // [추가] F키 - 바리케이드 하강 설치 (적 공격 방어용)
-    if (e.key.toLowerCase() === 'f') {
-        const now = Date.now();
-        // 3초 쿨타임 (무한 생성 방지)
+    // F키 - 바리케이드 하강 설치 (적 공격 방어용)
+    if (key === 'f') {
         if (now - player.lastBarricade > 3000) {
             player.lastBarricade = now;
-            
-            // 현재 마우스를 향한 조준 각도를 계산하여 앞(오른쪽/왼쪽)을 판별
             let shootY = player.isCrouching ? player.y - 23 : player.y - 38;
             let aimAngle = Math.atan2(mouse.y - shootY, (mouse.x + camX) - player.x);
             let facing = (Math.cos(aimAngle) > 0) ? 1 : -1;
-            
-            let targetX = player.x + (facing * 70); // 플레이어 바로 앞 70px 위치
-            let targetY = getTerrainY(targetX);     // 해당 위치의 땅 높이
-            
+            let targetX = player.x + (facing * 70); 
+            let targetY = getTerrainY(targetX);     
             const newBarricade = {
                 id: Math.random().toString(36).substr(2, 9),
-                x: targetX,
-                y: targetY - 600, // 하늘 높이에서 시작 (하강 이펙트)
-                targetY: targetY,
-                width: 30, // 네모 형태의 두께
-                height: 60, // 스틱맨(50)을 가릴 수 있는 높이
-                hp: 500,
-                maxHp: 500,
-                weaponType: 'barricade' // [트릭] 서버를 속이기 위해 총알인 척 발송
+                x: targetX, y: targetY - 600, targetY: targetY,
+                width: 30, height: 60, hp: 500, maxHp: 500,
+                weaponType: 'barricade' 
             };
-            
             barricades.push(newBarricade);
             if (isGameStarted) {
-                socket.emit('shootBullet', newBarricade); // 서버에 동기화
+                socket.emit('shootBullet', newBarricade); 
             }
         }
     }
 
-    if (e.key.toLowerCase() === 'r' && !player.isReloading) {
+    if (key === 'r' && !player.isReloading) {
         const wData = weapons[player.weapon];
         if (player.ammo[player.weapon] < wData.maxAmmo) {
             if (player.money >= wData.reloadCost) {
@@ -287,7 +307,7 @@ const weapons = {
 };
 
 const player = {
-    x: 100, y: 300, vx: 0, vy: 0, speed: 6, jumpPower: -13, gravity: 0.7,
+    x: 100, y: 300, vx: 0, vy: 0, speed: 6, jumpPower: -10, gravity: 0.5,
     width: 20, height: 50, 
     weapon: 'pistol', lastShot: 0, isGrounded: false,
     walkTime: 0, shootTimer: 0,
@@ -304,7 +324,12 @@ const player = {
     aimAngle: 0, // [추가] 서버 전송용 조준 각도
     isSlowWalking: false, // [추가] 천천히 걷기 상태 (Z키 온오프)
     lastBarricade: 0, // [추가] 바리케이드 쿨타임용 변수
-    recoil: 0 // [추가] 반동 효과용 변수 (미구현)
+    recoil: 0, // [추가] 반동 효과용 변수 (미구현)
+    lastTapA: 0,
+    lastTapD: 0,
+    lastDashTime: 0, // 1초 쿨타임 측정용
+    dashTimer: 0,    // 대쉬가 지속되는 프레임 수
+    dashDirection: 1 // 대쉬 방향 (1은 오른쪽, -1은 왼쪽)
 };
 
 const bullets = [];
@@ -525,10 +550,9 @@ function gameLoop() {
 function update() {
     generateTerrain();
 
-    // [수정] 반동 회복 로직: 사격 중이 아니거나 '앉아 있을 때' 반동을 제거
+    // 반동 회복 로직
     if (player.recoil > 0) {
         if (!mouse.isDown || player.weapon !== 'machineGun' || player.isCrouching) {
-            // 앉아 있으면 즉시 0으로, 서서 회복할 때는 천천히 회복
             player.recoil = player.isCrouching ? 0 : Math.max(0, player.recoil - 0.02);
         }
     }
@@ -552,15 +576,13 @@ function update() {
         }
     }
 
-    // [추가] 바리케이드 하강 및 파괴 로직 업데이트
     for (let i = barricades.length - 1; i >= 0; i--) {
         let bar = barricades[i];
         if (bar.y < bar.targetY) {
-            bar.y += 30; // 하늘에서 떨어지는 속도
+            bar.y += 30; 
             if (bar.y > bar.targetY) bar.y = bar.targetY;
         }
         if (bar.hp <= 0) {
-            // 부서질 때 파편 이펙트
             for (let k = 0; k < 15; k++) sparks.push({ x: bar.x, y: bar.y - 30, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 10, life: 15 + Math.random() * 15 });
             barricades.splice(i, 1);
         }
@@ -609,9 +631,16 @@ function update() {
         currentSpeed *= 0.7; 
     }
     
-    if (keys['a']) player.vx = -currentSpeed;
-    else if (keys['d']) player.vx = currentSpeed;
-    else player.vx = 0;
+    // [추가] 대쉬 중일 때는 조작 무시하고 강제로 초고속 이동
+    if (player.dashTimer > 0) {
+        player.vx = player.dashDirection * 22; // 평소 속도(6)보다 압도적으로 빠른 22 적용
+        player.dashTimer--;
+        player.isCrouching = false; // 대쉬 중에는 강제로 일어섬
+    } else {
+        if (keys['a']) player.vx = -currentSpeed;
+        else if (keys['d']) player.vx = currentSpeed;
+        else player.vx = 0;
+    }
 
     if (keys['w'] && player.isGrounded && !player.isCrouching) {
         player.vy = player.jumpPower;
@@ -752,7 +781,6 @@ function update() {
             let pHeight = player.isCrouching ? 35 : player.height;
             let bRadius = b.weaponType === 'sniper' ? 5 : 3;
             
-            // [추가] 1. 바리케이드가 적의 공격을 방어하는지 먼저 체크
             let hitBarricade = false;
             for (let k = 0; k < barricades.length; k++) {
                 let bar = barricades[k];
@@ -761,17 +789,15 @@ function update() {
                     b.y + bRadius > bar.y - bar.height && 
                     b.y - bRadius < bar.y) {
                     
-                    bar.hp -= b.damage; // 바리케이드 체력 감소
+                    bar.hp -= b.damage; 
                     hitBarricade = true;
-                    destroy = true; // 총알 소멸
+                    destroy = true; 
                     
-                    // 바리케이드 피격 스파크 이펙트
                     for (let s = 0; s < 5; s++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
                     break;
                 }
             }
 
-            // 2. 바리케이드에 안 막혔다면 플레이어 피격 체크
             if (!hitBarricade) {
                 if (b.x + bRadius > player.x - player.width/2 && b.x - bRadius < player.x + player.width/2 && 
                     b.y + bRadius > player.y - pHeight && b.y - bRadius < player.y) {
@@ -799,7 +825,6 @@ function update() {
                 }
             }
         } else {
-            // 내가 쏜 총알이 적을 타격 (바리케이드 로직이 없으므로 내 공격은 바리케이드를 그대로 관통함)
             for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
                 if (b.weaponType === 'sniper' && b.distanceTraveled < weapons.sniper.minRange) continue;
@@ -808,15 +833,13 @@ function update() {
 
                 if (b.x > e.x - hitWidth/2 && b.x < e.x + hitWidth/2 && b.y > e.y - hitHeight && b.y < e.y) {
                     
-                    // [추가] 샷건 거리 비례 폭딜 시스템
                     let finalDamage = b.damage;
                     if (b.weaponType === 'shotgun') {
-                        // 거리 150픽셀 이내면 데미지 최대 3배까지 폭증, 멀면 1배 유지
                         let distanceMultiplier = Math.max(1, 3 - (b.distanceTraveled / 150));
                         finalDamage = b.damage * distanceMultiplier;
                     }
 
-                    e.hp -= finalDamage; // 증폭된 데미지 적용
+                    e.hp -= finalDamage; 
                     socket.emit('enemyHit', { enemyId: e.id, damage: finalDamage }); 
                     
                     if (b.weaponType !== 'sniper') destroy = true; 
@@ -1157,7 +1180,7 @@ function drawStickman(ctx, entity, aimTarget, isPlayer, playerName = null) {
     }
 }
 
-// --- 렌더링 ---// --- 렌더링 ---
+// --- 렌더링 ---
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -1191,18 +1214,14 @@ function draw() {
         ctx.stroke();
     }
 
-    // 바리케이드 그리기 (갈색 네모 형태)
     for (let bar of barricades) {
-        // 본체 그리기
         ctx.fillStyle = "#8B4513"; 
         ctx.fillRect(bar.x - bar.width/2, bar.y - bar.height, bar.width, bar.height);
         
-        // 윤곽선 그리기
         ctx.strokeStyle = "#5C3A21"; 
         ctx.lineWidth = 2;
         ctx.strokeRect(bar.x - bar.width/2, bar.y - bar.height, bar.width, bar.height);
         
-        // 체력바 렌더링 (땅에 닿았을 때만 표시)
         if (bar.y >= bar.targetY) {
             ctx.fillStyle = "red";
             ctx.fillRect(bar.x - bar.width/2, bar.y - bar.height - 10, bar.width, 4);
@@ -1220,27 +1239,21 @@ function draw() {
         ctx.fillRect(e.x - e.width/2, e.y - 60, e.width * (Math.max(0, e.hp) / e.maxHp), 5);
     }
 
-    // [추가/수정] 반동을 적용한 시각적 마우스 좌표 계산
-    // 실제 마우스 위치가 아니라, 반동 수치(player.recoil)만큼 위로 들린 가상의 타겟을 만듭니다.
     let shootY = player.isCrouching ? player.y - 23 : player.y - 38;
     let dx = (mouse.x + camX) - player.x;
     let dy = mouse.y - shootY;
-    let dist = Math.sqrt(dx*dx + dy*dy); // 플레이어와 실제 마우스 사이의 거리
-    let baseAngle = Math.atan2(dy, dx); // 원래 조준하던 각도
-    let recoiledAngle = baseAngle - (player.recoil || 0); // 반동으로 인해 위로 들린 최종 각도
+    let dist = Math.sqrt(dx*dx + dy*dy); 
+    let baseAngle = Math.atan2(dy, dx); 
+    let recoiledAngle = baseAngle - (player.recoil || 0); 
     
-    // 들린 각도를 바탕으로 새로운 타겟 좌표(월드 좌표계) 생성
     let recoiledMouseXWorld = player.x + Math.cos(recoiledAngle) * dist;
     let recoiledMouseY = shootY + Math.sin(recoiledAngle) * dist;
     
-    // 화면에 그리기 위한 스크린 X 좌표
     let recoiledMouseScreenX = recoiledMouseXWorld - camX;
 
-    // 내 캐릭터 렌더링 (실제 마우스가 아닌 반동이 적용된 가상의 좌표를 넘겨줌)
     const mouseWorldPos = { x: recoiledMouseXWorld, y: recoiledMouseY };
     drawStickman(ctx, player, mouseWorldPos, true);
 
-    // 같은 방 다른 유저 렌더링
     for (let id in otherPlayers) {
         let op = otherPlayers[id];
         let opAimTarget = {
@@ -1268,16 +1281,34 @@ function draw() {
         ctx.fill();
     }
 
+    // 스파크 및 먼지 이펙트 렌더링
     for (let s of sparks) {
-        ctx.fillStyle = "cyan";
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.life / 3, 0, Math.PI * 2);
-        ctx.fill();
+        if (s.type === 'dust') {
+            // [추가] 카툰 스타일 모래 먼지 이펙트 (뾰족뾰족한 W 형태)
+            ctx.strokeStyle = `rgba(184, 134, 11, ${s.life / 30})`; // 모래색, 수명에 따라 점점 투명해짐
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            let w = s.size;
+            let h = s.size;
+            
+            // |\|\|\|\ 처럼 지그재그 뾰족한 모양 그리기
+            ctx.moveTo(s.x - w/2, s.y);
+            ctx.lineTo(s.x - w/4, s.y - h);
+            ctx.lineTo(s.x, s.y);
+            ctx.lineTo(s.x + w/4, s.y - h);
+            ctx.lineTo(s.x + w/2, s.y);
+            ctx.stroke();
+        } else {
+            // 기존 총알 스파크 이펙트
+            ctx.fillStyle = "cyan";
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.life / 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 
     ctx.restore(); 
 
-    // [수정] 크로스헤어(빨간 과녁) 그리기 시 실제 마우스 좌표 대신 반동이 적용된 좌표 사용
     ctx.strokeStyle = "rgba(255, 0, 0, 0.8)";
     ctx.lineWidth = 2;
     
