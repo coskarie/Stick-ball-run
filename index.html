@@ -181,11 +181,13 @@ let globalRoomNumber = "";
 
 window.addEventListener('keydown', e => { 
     if (!isGameStarted) return; 
+    if (e.repeat) return; 
+
     const key = e.key.toLowerCase();
     keys[key] = true; 
     const now = Date.now();
 
-    // [추가] 방향키 연타 대쉬 로직 (A키 - 왼쪽)
+    // 방향키 연타 대쉬 로직 (A키 - 왼쪽)
     if (key === 'a') {
         // 0.25초 이내 연타 감지 && 1초(1000ms) 쿨타임 확인
         if (now - player.lastTapA < 250 && now - player.lastDashTime > 1000) {
@@ -201,7 +203,7 @@ window.addEventListener('keydown', e => {
         player.lastTapA = now;
     }
     
-    // [추가] 방향키 연타 대쉬 로직 (D키 - 오른쪽)
+    // 방향키 연타 대쉬 로직 (D키 - 오른쪽)
     if (key === 'd') {
         if (now - player.lastTapD < 250 && now - player.lastDashTime > 1000) {
             player.lastDashTime = now;
