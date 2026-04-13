@@ -464,7 +464,7 @@ function tryShoot() {
             }
         } else if (player.weapon === 'machineGun') {
             // [추가] 기관총 오차 범위 +- 10도 (총 20도)
-            const mgSpread = (Math.random() - 0.5) * (20 * Math.PI / 180);
+            const mgSpread = (Math.random() - 0.5) * (5 * Math.PI / 180);
             spawnBullet(angle + mgSpread, wData, shootY);
         } else {
             spawnBullet(angle, wData, shootY);
