@@ -463,7 +463,21 @@ function tryShoot() {
                 spawnBullet(spreadAngle, wData, shootY);
             }
         } else if (player.weapon === 'machineGun') {
-            const mgSpread = (Math.random() - 0.5) * (20 * Math.PI / 180);
+            // [수정] 정규분포(표준분포표) 근사 기법 적용
+            // 여러 개의 난수를 더해서 평균을 내면 중앙(0.5)에 확률이 집중되는 종 모양 곡선이 만들어집니다.
+            const rand1 = Math.random();
+            const rand2 = Math.random();
+            const rand3 = Math.random();
+            
+            // 0.0 ~ 1.0 범위에서 중앙(0.5)에 가장 많이 몰리는 난수 생성
+            const gaussianRandom = (rand1 + rand2 + rand3) / 3; 
+            
+            // 0.5를 빼서 중앙을 0으로 맞추고, 2를 곱해 최종적으로 -1.0 ~ 1.0 범위로 확장
+            const normalized = (gaussianRandom - 0.5) * 2; 
+            
+            // 최대 좌우 10도 (총 20도 범위)의 오차 적용
+            const mgSpread = normalized * (10 * Math.PI / 180); 
+            
             spawnBullet(angle + mgSpread, wData, shootY);
         } else {
             spawnBullet(angle, wData, shootY);
