@@ -476,7 +476,7 @@ function tryShoot() {
             const normalized = (gaussianRandom - 0.5) * 2; 
             
             // 최대 좌우 10도 (총 20도 범위)의 오차 적용
-            const mgSpread = normalized * (10 * Math.PI / 180); 
+            const mgSpread = normalized * (5 * Math.PI / 180); 
             
             spawnBullet(angle + mgSpread, wData, shootY);
         } else {
