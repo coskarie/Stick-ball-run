@@ -720,6 +720,7 @@ function gameLoop() {
 
 // --- 메인 루프 (update) ---
 function update() {
+    // 강화 창이 켜져 있으면 게임의 물리 연산, 적 이동, 투사체 등 모든 로직을 일시정지
     if (player.isUpgrading) return; 
 
     generateTerrain();
@@ -780,11 +781,11 @@ function update() {
         }
     }
 
-    // [수정] 이펙트 파티클 물리 연산 (쇼크웨이브 처리 추가)
+    // 이펙트 파티클 물리 연산
     for (let i = sparks.length - 1; i >= 0; i--) {
         let s = sparks[i]; 
         if (s.type === 'shockwave') {
-            s.radius += 3; // 폭발원이 커짐
+            s.radius += 3; 
             s.life -= 1;
             if (s.life <= 0) sparks.splice(i, 1);
         } else {
@@ -836,34 +837,35 @@ function update() {
 
     player.vy += player.gravity; player.x += player.vx; player.y += player.vy;
 
-    // 🚨 [추가] 디펜더 특수 스킬: '돌격 (쉴드 배쉬)' 물리 충돌 로직
+    // 디펜더 특수 스킬: '돌격 (쉴드 배쉬)' 물리 충돌 로직
     if (player.job === 'defender' && player.hasDashPush && player.weapon === 'shield' && player.dashTimer > 0) {
-        let pushRange = 50; // 밀쳐내는 사거리 (전방 판정)
+        let pushRange = 50; 
         
         for (let i = enemies.length - 1; i >= 0; i--) {
             let e = enemies[i];
-            // 거대 보스(4)와 공중 드론(5)은 밀쳐지지 않음
+            
+            // 🚨 [수정] 이미 이번 대쉬에 맞은 적이거나 죽은 적, 보스/드론은 무시 (분쇄기 버그 방지)
             if (e.hp <= 0 || e.enemyType === 4 || e.enemyType === 5) continue; 
+            if (e.lastHitDashTime === player.lastDashTime) continue; 
 
             let dx = e.x - player.x;
             let dy = e.y - player.y;
             let dist = Math.sqrt(dx*dx + dy*dy);
 
-            // 바라보는 방향에 적이 있고 사거리 안쪽일 경우
             if (dist < pushRange + (e.width/2) && Math.sign(dx) === player.dashDirection) {
                 
-                // 1. 적에게 스턴 부여 및 강제 넉백 (위로 뜨면서 날아감)
-                e.stunTimer = 20; // 20프레임 동안 행동 불능
+                // 🚨 [수정] 이번 대쉬에 맞았다고 시간을 기록해서 중복 타격 방지
+                e.lastHitDashTime = player.lastDashTime;
+
+                e.stunTimer = 20; 
                 e.vx = player.dashDirection * 15; 
                 e.vy = -7; 
                 e.isGrounded = false;
                 
-                // 2. 약간의 타격 데미지
-                let dashDamage = 30;
+                let dashDamage = 30; // 데미지가 정확히 1번만 적용됨
                 e.hp -= dashDamage;
                 socket.emit('enemyHit', { enemyId: e.id, damage: dashDamage });
 
-                // 3. 타격 이펙트 (화려한 링 이펙트 + 파편)
                 sparks.push({ type: 'shockwave', x: e.x, y: e.y - 20, radius: 1, life: 15, color: 'cyan' });
                 for(let k=0; k<10; k++) {
                     sparks.push({ 
@@ -1002,13 +1004,10 @@ function update() {
         let dist = e.x - target.x; let absDist = Math.abs(dist); let dir = dist > 0 ? -1 : 1; 
         let baseSpeed = e.maxHp >= 60 ? 2 : 1.25; 
         
-        // 🚨 [추가] 스턴 상태(넉백)일 경우 AI 이동을 멈춤
         e.stunTimer = e.stunTimer || 0;
         if (e.stunTimer > 0) {
             e.stunTimer--;
-            // 기절 중이므로 스스로 vx를 덮어쓰지 않고 물리 관성에 몸을 맡김
         } else {
-            // --- 몬스터 정상 AI 패턴 ---
             if (e.enemyType === 5) {
                 baseSpeed = 3.0;
                 let targetAltitude = target.y - 80;
@@ -1072,7 +1071,7 @@ function update() {
                     bullets.push({ x: e.x, y: e.y - 38, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, damage: 5, color: 'orange', distanceTraveled: 0, weaponType: 'pistol', pierceRemaining: 0, isEnemy: true });
                 }
             }
-        } // 스턴 else 끝
+        } 
         
         e.x += e.vx; e.y += e.vy;
         if (e.vx !== 0) e.walkTime += (e.vx > 0 ? 0.2 : -0.2); 
