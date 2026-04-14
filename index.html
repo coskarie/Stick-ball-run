@@ -788,16 +788,13 @@ function update() {
     let activeBoss = enemies.find(e => e.enemyType === 4);
     if (activeBoss) {
         if (!player.arenaRightWall) {
-            // 보스가 처음 스폰될 때, 보스 위치를 기준으로 아레나 우측 끝 벽 설정
             player.arenaRightWall = activeBoss.x + 200; 
         }
-        // 플레이어가 도망치려고 우측 벽을 뚫으려 하면 막아버림
         if (player.x > player.arenaRightWall) {
             player.x = player.arenaRightWall;
             if (player.vx > 0) player.vx = 0;
         }
     } else {
-        // 보스가 없거나, 방금 처치했다면 투명벽 해제
         player.arenaRightWall = null;
     }
 
@@ -837,11 +834,11 @@ function update() {
             x: player.x + canvas.width + 150, 
             y: 100, 
             vx: 0, vy: 0, 
-            width: 60, height: 150, // 물리적 히트박스를 일반 적의 3배
+            width: 60, height: 150, 
             hp: bossMaxHp,
             maxHp: bossMaxHp,
             color: '#8b0000', 
-            enemyType: 4,     // 보스 타입
+            enemyType: 4,     
             walkTime: 0, shootTimer: 0, attackTimer: 0, 
             reward: 1000 * bossLevel, 
             weapon: 'machineGun', 
@@ -862,21 +859,34 @@ function update() {
         let enemyType = 0; 
         if (Math.random() < specialChance) {
             let r = Math.random();
-            if (r < 0.33) enemyType = 1; else if (r < 0.66) enemyType = 2; else enemyType = 3; 
+            if (r < 0.25) enemyType = 1; 
+            else if (r < 0.50) enemyType = 2; 
+            else if (r < 0.75) enemyType = 3; 
+            else enemyType = 5; // [추가] 5번: 소형 비행 공격 드론
         }
         let isSpecial = enemyType > 0;
-        let eWidth = enemyType === 3 ? 14 : 20; let eHeight = enemyType === 3 ? 35 : 50;  
+        let eWidth = enemyType === 3 ? 14 : (enemyType === 5 ? 24 : 20); 
+        let eHeight = enemyType === 3 ? 35 : (enemyType === 5 ? 16 : 50);  
         let eColor = '#00aa00';
-        if (enemyType === 1) eColor = 'purple'; else if (enemyType === 2) eColor = 'orange'; else if (enemyType === 3) eColor = 'red'; 
+        if (enemyType === 1) eColor = 'purple'; 
+        else if (enemyType === 2) eColor = 'orange'; 
+        else if (enemyType === 3) eColor = 'red'; 
+        else if (enemyType === 5) eColor = 'red'; 
         
+        let baseEnemyHp = isSpecial ? 60 + (enemyLevel * 10) : 25 + (enemyLevel * 3);
+        let finalHp = enemyType === 3 ? 20 : (enemyType === 5 ? 30 + (enemyLevel * 5) : baseEnemyHp);
+
         let newEnemy = {
-            id: Math.random().toString(36).substr(2, 9), x: player.x + canvas.width + 100, y: 100, 
+            id: Math.random().toString(36).substr(2, 9), x: player.x + canvas.width + 100, 
+            y: enemyType === 5 ? player.y - 100 : 100, // 드론은 공중에서 스폰
             vx: 0, vy: 0, width: eWidth, height: eHeight,
-            hp: enemyType === 3 ? 20 : (isSpecial ? 60 + (enemyLevel * 10) : 25 + (enemyLevel * 3)),
-            maxHp: enemyType === 3 ? 20 : (isSpecial ? 60 + (enemyLevel * 10) : 25 + (enemyLevel * 3)),
+            hp: finalHp, maxHp: finalHp,
             color: eColor, enemyType: enemyType, walkTime: Math.random() * Math.PI, 
-            shootTimer: 0, attackTimer: 0, reward: enemyType === 3 ? 40 : (isSpecial ? 50 : 20),
-            weapon: enemyType === 3 ? 'none' : (enemyType === 2 ? 'melee' : 'pistol'), isGrounded: false 
+            shootTimer: 0, attackTimer: 0, 
+            reward: enemyType === 3 ? 40 : (enemyType === 5 ? 60 : (isSpecial ? 50 : 20)),
+            weapon: enemyType === 3 ? 'none' : (enemyType === 2 ? 'melee' : (enemyType === 5 ? 'droneGun' : 'pistol')), 
+            isGrounded: false,
+            burstCount: 0, burstTimer: 0 // 드론 3연사용 변수
         };
         socket.emit('spawnEnemy', newEnemy);
         lastEnemySpawn = Date.now();
@@ -887,18 +897,27 @@ function update() {
         if (e.hp <= 0) {
             player.money += e.reward; 
             
-            // 보스가 죽으면 탄창 3개 드랍
             if (e.enemyType === 4) {
                 for(let m = 0; m < 3; m++) {
                     items.push({ x: e.x + (Math.random()*40-20), y: e.y - 10, vx: (Math.random() - 0.5) * 10, vy: -5 - Math.random()*3, width: 14, height: 20 });
                 }
+            } else if (e.enemyType === 5) {
+                // [추가] 드론 파괴 시 화려한 폭발 효과
+                for (let k = 0; k < 25; k++) sparks.push({ x: e.x, y: e.y, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 15, life: 15 + Math.random() * 20, color: 'orange' });
+                for (let k = 0; k < 15; k++) sparks.push({ x: e.x, y: e.y, vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20, life: 10 + Math.random() * 10, color: 'red' });
+                if (Math.random() < 0.15) items.push({ x: e.x, y: e.y, vx: (Math.random() - 0.5) * 6, vy: -4, width: 14, height: 20 });
             } else if (Math.random() < 0.10) {
                 items.push({ x: e.x, y: e.y - 10, vx: (Math.random() - 0.5) * 6, vy: -4, width: 14, height: 20 });
             }
             enemies.splice(i, 1);
             continue;
         }
-        e.vy += player.gravity;
+        
+        // [수정] 드론(Type 5)은 중력의 영향을 받지 않음
+        if (e.enemyType !== 5) {
+            e.vy += player.gravity;
+        }
+
         let target = player; let minDist = Math.abs(e.x - player.x);
         for (let id in otherPlayers) {
             let op = otherPlayers[id]; let absD = Math.abs(e.x - op.x);
@@ -907,8 +926,43 @@ function update() {
         let dist = e.x - target.x; let absDist = Math.abs(dist); let dir = dist > 0 ? -1 : 1; 
         let baseSpeed = e.maxHp >= 60 ? 2 : 1.25; 
         
-        // 거대 보스 AI 패턴
-        if (e.enemyType === 4) {
+        // --- 몬스터 개별 AI 패턴 ---
+        if (e.enemyType === 5) {
+            // [추가] 드론 AI: 공중에서 따라가며 뒤로 물러나지 않고 3연사
+            baseSpeed = 3.0;
+            
+            // 고도 조절: 타겟 머리 위 80픽셀 언저리를 부드럽게 유지
+            let targetAltitude = target.y - 80;
+            e.y += (targetAltitude - e.y) * 0.05; 
+
+            // 전진: 일정 거리까지만 다가가고 절대로 뒤로 물러나지 않음
+            if (absDist > 150) e.vx = baseSpeed * dir; 
+            else e.vx = 0; 
+
+            // 1초마다 3연사 장전
+            if (absDist <= 450 && Date.now() - (e.lastShot || 0) > 1000) {
+                e.lastShot = Date.now();
+                e.burstCount = 3;  // 3발 발사 예약
+                e.burstTimer = 0;
+            }
+
+            // 프레임 간격을 두고 따다닥 발사
+            if (e.burstCount > 0 && e.burstTimer <= 0) {
+                const targetHeadY = target.y - 25; 
+                const angle = Math.atan2(targetHeadY - e.y, target.x - e.x);
+                bullets.push({ 
+                    x: e.x, y: e.y + 4, // 총구 위치
+                    vx: Math.cos(angle) * 14, vy: Math.sin(angle) * 14, 
+                    damage: 4, color: 'yellow', distanceTraveled: 0, 
+                    weaponType: 'machineGun', pierceRemaining: 0, isEnemy: true 
+                });
+                e.burstCount--;
+                e.burstTimer = 5; // 5프레임 뒤 다음 총알
+            }
+            if (e.burstTimer > 0) e.burstTimer--;
+
+        }
+        else if (e.enemyType === 4) {
             baseSpeed = BOSS_CONFIG.moveSpeed; 
             if (absDist > 650) e.vx = baseSpeed * dir; 
             else if (absDist < 450) e.vx = (baseSpeed * 0.5) * (-dir); 
@@ -969,11 +1023,17 @@ function update() {
                 bullets.push({ x: e.x, y: e.y - 38, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, damage: 5, color: 'orange', distanceTraveled: 0, weaponType: 'pistol', pierceRemaining: 0, isEnemy: true });
             }
         }
+        
         e.x += e.vx; e.y += e.vy;
         if (e.vx !== 0) e.walkTime += (e.vx > 0 ? 0.2 : -0.2); 
         if (e.shootTimer > 0) e.shootTimer -= 16; if (e.attackTimer > 0) e.attackTimer -= 1; 
-        const eGroundY = getTerrainY(e.x);
-        if (e.y >= eGroundY) { e.y = eGroundY; e.vy = 0; e.isGrounded = true; } else { e.isGrounded = false; }
+        
+        // [수정] 드론이 아닐 때만 땅과 충돌 처리
+        if (e.enemyType !== 5) {
+            const eGroundY = getTerrainY(e.x);
+            if (e.y >= eGroundY) { e.y = eGroundY; e.vy = 0; e.isGrounded = true; } else { e.isGrounded = false; }
+        }
+
         if (e.x < camX - 2000 || e.y > 2000) enemies.splice(i, 1);
     }
 
@@ -1024,8 +1084,6 @@ function update() {
             for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
                 
-                // 🚨 [버그 수정 핵심] 이미 죽은 몬스터는 총알 충돌 판정에서 완전히 제외시킵니다!
-                // 이렇게 해야 샷건의 수많은 파편이 시체에 꽂히면서 서버로 데미지 신호를 과부하 시키는 현상을 막을 수 있습니다.
                 if (e.hp <= 0) continue; 
 
                 if (b.weaponType === 'sniper' && b.distanceTraveled < weapons.sniper.minRange) continue;
@@ -1462,7 +1520,53 @@ function draw() {
     }
 
     for (let e of enemies) {
-        if (e.enemyType === 4) {
+        if (e.enemyType === 5) {
+            // [추가] 5번 소형 비행 공격 드론 렌더링
+            ctx.save();
+            ctx.translate(e.x, e.y);
+            
+            // 공중에 떠 있는 호버링 모션
+            let hoverOffset = Math.sin(Date.now() / 150) * 4;
+            ctx.translate(0, hoverOffset);
+
+            let dir = (player.x - e.x) > 0 ? 1 : -1;
+
+            // 본체 (빨간 타원형)
+            ctx.fillStyle = "#cc0000";
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 12, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 총구 (아래쪽)
+            ctx.fillStyle = "#333";
+            ctx.fillRect(dir * 4, 4, dir * 8, 4);
+
+            // 프로펠러 지지대
+            ctx.fillStyle = "#555";
+            ctx.fillRect(-12, -6, 2, 4);
+            ctx.fillRect(10, -6, 2, 4);
+
+            // 회전하는 프로펠러 날개 애니메이션 (반투명)
+            ctx.fillStyle = "rgba(200, 255, 255, 0.8)";
+            let propWidth = 8 + Math.sin(Date.now() / 30) * 8; 
+            ctx.fillRect(-11 - propWidth/2, -8, propWidth, 2);
+            ctx.fillRect(11 - propWidth/2, -8, propWidth, 2);
+
+            // 카메라 렌즈(눈)
+            ctx.fillStyle = "cyan";
+            ctx.beginPath();
+            ctx.arc(dir * 5, -1, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+
+            // 체력바
+            ctx.fillStyle = "red";
+            ctx.fillRect(e.x - 12, e.y - 20, 24, 4); 
+            ctx.fillStyle = "#0f0";
+            ctx.fillRect(e.x - 12, e.y - 20, 24 * (Math.max(0, e.hp) / e.maxHp), 4);
+
+        } else if (e.enemyType === 4) {
             ctx.save();
             ctx.translate(e.x, e.y);
             ctx.scale(3, 3); 
