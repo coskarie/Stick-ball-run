@@ -282,12 +282,20 @@ window.addEventListener('keydown', e => {
 // --- 데이터 설계 ---
 const weapons = {
     pistol: { type: 'single', fireRate: 300, speed: 20, damage: 15, color: 'black', maxAmmo: 10, reloadCost: 0, reloadTime: 1000 },
-    // [수정] 기관총 오차 범위(spread) 속성 추가
     machineGun: { type: 'auto', fireRate: 90, speed: 25, damage: 7, color: 'gray', maxAmmo: 50, reloadCost: 100, reloadTime: 2000, spread: 5 },
-    // [수정] 샷건 공속 너프(800 -> 1200) 및 다수기(pierce) 기본 0으로 추가
     shotgun: { type: 'single', fireRate: 1200, speed: 18, damage: 10, color: 'red', pellets: 6, spread: 35, maxAmmo: 5, reloadCost: 500, reloadTime: 3000, pierce: 0 },
     sniper: { type: 'single', fireRate: 1500, speed: 45, damage: 80, color: 'blue', minRange: 200, pierce: 3, maxAmmo: 8, reloadCost: 1000, reloadTime: 5000 },
     shield: { type: 'shield', fireRate: 9999, speed: 0, damage: 0, color: 'cyan', maxAmmo: 50, reloadCost: 0, reloadTime: 1000 } 
+};
+
+// [추가] 🚨 보스 몬스터 설정표 (여기서 숫자를 조절하세요!)
+const BOSS_CONFIG = {
+    baseHp: 1500,        // 1500m 첫 보스의 기본 체력
+    hpPerLevel: 1000,    // 다음 보스(2500m, 3500m)가 나올 때마다 추가되는 체력
+    damage: 10,          // 기관총 한 발당 플레이어에게 입히는 데미지
+    fireRate: 150,       // 사격 속도 (작을수록 기관총을 더 빨리 쏨. 150 = 0.15초)
+    bulletSpeed: 16,     // 보스 총알이 날아오는 속도
+    moveSpeed: 1.2       // 보스의 걷는 속도 (덩치가 커서 기본적으론 약간 느림)
 };
 
 const player = {
@@ -301,8 +309,9 @@ const player = {
     isCrouching: false, crouchStamina: 300, maxCrouchStamina: 300,
     aimAngle: 0, isSlowWalking: false, lastBarricade: 0, recoil: 0, 
     lastTapA: 0, lastTapD: 0, lastDashTime: 0, dashTimer: 0, dashDirection: 1,
-    upgradeMilestone: 1, // 목표 거리 (1000, 2000, 3000...)
-    isUpgrading: false   // 현재 강화 창이 켜져 있는지 여부
+    upgradeMilestone: 1, isUpgrading: false,
+    // [추가] 다음 보스가 등장할 미터수 (시작은 1500m)
+    nextBossMilestone: 1500
 };
 
 const bullets = [];
@@ -655,320 +664,209 @@ function gameLoop() {
     }
 }
 
-// --- 메인 루프 (update) ---
-function update() {
-    // [핵심] 강화 창이 켜져 있으면 게임의 물리 연산, 적 이동, 투사체 등 모든 로직을 일시정지
-    if (player.isUpgrading) return; 
 
-    generateTerrain();
+// --- 렌더링 ---
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    canvas.style.cursor = 'none';
 
-    if (player.recoil > 0) {
-        if (!mouse.isDown || player.weapon !== 'machineGun' || player.isCrouching) {
-            player.recoil = player.isCrouching ? 0 : Math.max(0, player.recoil - 0.02);
+    ctx.save();
+    ctx.translate(-camX, 0); 
+
+    ctx.fillStyle = "#111"; 
+    for (let chunk of terrainChunks) {
+        if (chunk.length === 0) continue;
+        
+        ctx.beginPath();
+        ctx.moveTo(chunk[0].x, chunk[0].y);
+        for (let i = 1; i < chunk.length; i++) {
+            ctx.lineTo(chunk[i].x, chunk[i].y);
+        }
+        
+        ctx.lineTo(chunk[chunk.length - 1].x, canvas.height + 100);
+        ctx.lineTo(chunk[0].x, canvas.height + 100);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(chunk[0].x, chunk[0].y);
+        for (let i = 1; i < chunk.length; i++) {
+            ctx.lineTo(chunk[i].x, chunk[i].y);
+        }
+        ctx.stroke();
+    }
+
+    for (let bar of barricades) {
+        ctx.fillStyle = "#8B4513"; 
+        ctx.fillRect(bar.x - bar.width/2, bar.y - bar.height, bar.width, bar.height);
+        
+        ctx.strokeStyle = "#5C3A21"; 
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bar.x - bar.width/2, bar.y - bar.height, bar.width, bar.height);
+        
+        if (bar.y >= bar.targetY) {
+            ctx.fillStyle = "red";
+            ctx.fillRect(bar.x - bar.width/2, bar.y - bar.height - 10, bar.width, 4);
+            ctx.fillStyle = "#0f0";
+            ctx.fillRect(bar.x - bar.width/2, bar.y - bar.height - 10, bar.width * (Math.max(0, bar.hp) / bar.maxHp), 4);
+        }
+    }
+
+    for (let item of items) {
+        ctx.save();
+        ctx.translate(item.x, item.y - 10); 
+        
+        ctx.fillStyle = "#2b2b2b";
+        ctx.fillRect(-7, -10, 14, 20);
+        
+        ctx.fillStyle = "#111111";
+        ctx.fillRect(-4, -8, 2, 16);
+        ctx.fillRect(2, -8, 2, 16);
+
+        ctx.fillStyle = "#d4af37";
+        ctx.beginPath();
+        ctx.arc(-2, -10, 2, Math.PI, 0);
+        ctx.arc(2, -10, 2, Math.PI, 0);
+        ctx.fill();
+        
+        ctx.strokeStyle = "rgba(255, 255, 0, 0.6)";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-8, -12, 16, 23);
+
+        ctx.restore();
+    }
+
+    for (let e of enemies) {
+        if (e.enemyType === 4) {
+            // [추가] 보스(Type 4)는 스케일을 3배로 부풀려서 렌더링
+            ctx.save();
+            ctx.translate(e.x, e.y);
+            ctx.scale(3, 3); 
+            ctx.translate(-e.x, -e.y);
+            drawStickman(ctx, e, player, false);
+            ctx.restore();
+
+            // 보스용 특수 대형 체력바 및 타이틀
+            ctx.fillStyle = "black";
+            ctx.fillRect(e.x - 52, e.y - 182, 104, 14); // 테두리 배경
+            ctx.fillStyle = "red";
+            ctx.fillRect(e.x - 50, e.y - 180, 100, 10); // 깎인 체력 (빨강)
+            ctx.fillStyle = "#0f0";
+            ctx.fillRect(e.x - 50, e.y - 180, 100 * (Math.max(0, e.hp) / e.maxHp), 10); // 남은 체력 (초록)
+            
+            ctx.fillStyle = "white";
+            ctx.font = "bold 16px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("!! BOSS !!", e.x, e.y - 190);
+
+        } else if (e.enemyType === 3) {
+            ctx.save();
+            ctx.translate(e.x, e.y);
+            ctx.scale(0.7, 0.7); 
+            ctx.translate(-e.x, -e.y);
+            drawStickman(ctx, e, player, false);
+            ctx.restore();
+            
+            ctx.fillStyle = "red";
+            ctx.fillRect(e.x - 10, e.y - 60, 20, 5); 
+            ctx.fillStyle = "#0f0";
+            ctx.fillRect(e.x - 10, e.y - 60, 20 * (Math.max(0, e.hp) / e.maxHp), 5);
+        } else {
+            drawStickman(ctx, e, player, false);
+            
+            ctx.fillStyle = "red";
+            ctx.fillRect(e.x - 10, e.y - 60, 20, 5); 
+            ctx.fillStyle = "#0f0";
+            ctx.fillRect(e.x - 10, e.y - 60, 20 * (Math.max(0, e.hp) / e.maxHp), 5);
         }
     }
 
     let shootY = player.isCrouching ? player.y - 23 : player.y - 38;
-    player.aimAngle = Math.atan2(mouse.y - shootY, (mouse.x + camX) - player.x);
-
-    if (isGameStarted) {
-        const now = Date.now();
-        if (now - lastEmitTime > TICK_INTERVAL) {
-            socket.emit('playerUpdate', {
-                x: player.x, y: player.y, weapon: player.weapon, hp: player.hp, maxHp: player.maxHp,
-                isCrouching: player.isCrouching, aimAngle: player.aimAngle,
-                isReloading: player.isReloading, vx: player.vx, name: globalPlayerName,
-                shieldAmmo: player.ammo['shield'], isSlowWalking: player.isSlowWalking
-            });
-            lastEmitTime = now;
-        }
-    }
-
-    for (let i = barricades.length - 1; i >= 0; i--) {
-        let bar = barricades[i];
-        if (bar.y < bar.targetY) {
-            bar.y += 30; 
-            if (bar.y > bar.targetY) bar.y = bar.targetY;
-        }
-        if (bar.hp <= 0) {
-            for (let k = 0; k < 15; k++) sparks.push({ x: bar.x, y: bar.y - 30, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 10, life: 15 + Math.random() * 15 });
-            barricades.splice(i, 1);
-        }
-    }
-
-    for (let i = items.length - 1; i >= 0; i--) {
-        let item = items[i];
-        item.vy += player.gravity; 
-        item.x += item.vx; item.y += item.vy;
-
-        const itemGroundY = getTerrainY(item.x);
-        if (item.y >= itemGroundY) {
-            item.y = itemGroundY; item.vy = 0; item.vx *= 0.8; 
-        }
-
-        if (Math.abs(player.x - item.x) < (player.width / 2 + item.width / 2 + 10) && Math.abs((player.y - 25) - (item.y - 10)) < (25 + 10 + 10)) {
-            const wData = weapons[player.weapon];
-            if (player.weapon === 'pistol') player.ammo['pistol'] = wData.maxAmmo; 
-            else if (player.weapon === 'machineGun') player.ammo['machineGun'] = Math.min(wData.maxAmmo, player.ammo['machineGun'] + 25);
-            else if (player.weapon === 'shotgun') player.ammo['shotgun'] = Math.min(wData.maxAmmo, player.ammo['shotgun'] + 3);
-            else if (player.weapon === 'sniper') player.ammo['sniper'] = Math.min(wData.maxAmmo, player.ammo['sniper'] + 1);
-
-            for (let k = 0; k < 10; k++) sparks.push({ type: 'normal', x: item.x, y: item.y - 10, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8, life: 15 + Math.random() * 10, color: "yellow" });
-            items.splice(i, 1); 
-        }
-    }
-
-    for (let i = sparks.length - 1; i >= 0; i--) {
-        let s = sparks[i]; s.x += s.vx; s.y += s.vy; s.life -= 1;
-        if (s.life <= 0) sparks.splice(i, 1);
-    }
-
-    if (keys['s']) {
-        if (player.crouchStamina > 0) {
-            player.isCrouching = true; player.crouchStamina -= 1; 
-        } else { player.isCrouching = false; }
-    } else {
-        player.isCrouching = false;
-        if (player.crouchStamina < player.maxCrouchStamina) {
-            player.crouchStamina += 0.75; 
-            if (player.crouchStamina > player.maxCrouchStamina) player.crouchStamina = player.maxCrouchStamina;
-        }
-    }
-
-    if (player.isReloading) {
-        const wData = weapons[player.weapon];
-        const elapsed = Date.now() - player.reloadStart;
-        player.reloadProgress = Math.min(1, elapsed / wData.reloadTime);
-        if (player.reloadProgress >= 1) {
-            player.money -= wData.reloadCost; 
-            player.ammo[player.weapon] = wData.maxAmmo; 
-            player.isReloading = false;
-        }
-    }
-
-    let currentSpeed = player.speed;
-    if (player.isSlowWalking) currentSpeed *= 0.3; 
-    if (player.isCrouching) currentSpeed *= 0.2; 
-    if (player.isReloading) currentSpeed *= 0.6;
-    else if (player.weapon === 'shield' && player.ammo['shield'] > 0) currentSpeed *= 0.7; 
+    let dx = (mouse.x + camX) - player.x;
+    let dy = mouse.y - shootY;
+    let dist = Math.sqrt(dx*dx + dy*dy); 
+    let baseAngle = Math.atan2(dy, dx); 
+    let recoiledAngle = baseAngle - (player.recoil || 0); 
     
-    if (player.dashTimer > 0) {
-        player.vx = player.dashDirection * 22; player.dashTimer--; player.isCrouching = false; 
-    } else {
-        if (keys['a']) player.vx = -currentSpeed; else if (keys['d']) player.vx = currentSpeed; else player.vx = 0;
-    }
-
-    if (keys['w'] && player.isGrounded && !player.isCrouching) {
-        player.vy = player.jumpPower; player.isGrounded = false;
-    }
-
-    if (mouse.isDown && player.weapon === 'machineGun') tryShoot();
-
-    player.vy += player.gravity; player.x += player.vx; player.y += player.vy;
-
-    const groundY = getTerrainY(player.x);
-    if (player.y >= groundY) { player.y = groundY; player.vy = 0; player.isGrounded = true; } else { player.isGrounded = false; }
-
-    if (player.isGrounded && Math.abs(player.vx) > 0.1 && !player.isCrouching) player.walkTime += (player.vx > 0 ? 0.2 : -0.2); 
-    else if (player.isGrounded) player.walkTime = 0; 
+    let recoiledMouseXWorld = player.x + Math.cos(recoiledAngle) * dist;
+    let recoiledMouseY = shootY + Math.sin(recoiledAngle) * dist;
     
-    if (player.shootTimer > 0) player.shootTimer -= 16;
+    let recoiledMouseScreenX = recoiledMouseXWorld - camX;
 
-    camX = player.x - canvas.width / 4; 
-    if (player.x > maxDistance) {
-        maxDistance = player.x;
-        document.getElementById('distanceUI').innerText = Math.floor(maxDistance / 50);
-    }
+    const mouseWorldPos = { x: recoiledMouseXWorld, y: recoiledMouseY };
+    drawStickman(ctx, player, mouseWorldPos, true);
 
-    let currentMeters = Math.floor(maxDistance / 50);
-
-    // [추가] 목표 미터수 (1000, 2000...)에 도달하면 강화 메뉴 호출
-    if (currentMeters >= player.upgradeMilestone * 1000) {
-        showUpgradeMenu();
-        return; // 즉시 업데이트 함수를 종료시켜 게임 멈춤
-    }
-    
-    document.getElementById('ammoUI').innerText = `[${player.ammo[player.weapon]} / ${weapons[player.weapon].maxAmmo}]`;
-    document.getElementById('moneyUI').innerText = player.money;
-    document.getElementById('hpUI').innerText = `${Math.max(0, player.hp)} / ${player.maxHp}`; 
-
-    let spawnCooldown = 5000; let specialChance = 0.05; let enemyLevel = 1;
-    if (currentMeters < 1000) { spawnCooldown = 5000; specialChance = 0.01; enemyLevel = 1; } 
-    else if (currentMeters < 2000) { spawnCooldown = 3000; specialChance = 0.05; enemyLevel = 3; } 
-    else if (currentMeters < 3000) { spawnCooldown = 1000; specialChance = 0.10; enemyLevel = 5; } 
-    else { spawnCooldown = 500; specialChance = 0.20; enemyLevel = 8; }
-
-    if (isHost && Date.now() - lastEnemySpawn > spawnCooldown) {
-        let enemyType = 0; 
-        if (Math.random() < specialChance) {
-            let r = Math.random();
-            if (r < 0.33) enemyType = 1; else if (r < 0.66) enemyType = 2; else enemyType = 3; 
-        }
-        let isSpecial = enemyType > 0;
-        let eWidth = enemyType === 3 ? 14 : 20; let eHeight = enemyType === 3 ? 35 : 50;  
-        let eColor = '#00aa00';
-        if (enemyType === 1) eColor = 'purple'; else if (enemyType === 2) eColor = 'orange'; else if (enemyType === 3) eColor = 'red'; 
-        
-        let newEnemy = {
-            id: Math.random().toString(36).substr(2, 9), x: player.x + canvas.width + 100, y: 100, 
-            vx: 0, vy: 0, width: eWidth, height: eHeight,
-            hp: enemyType === 3 ? 20 : (isSpecial ? 60 + (enemyLevel * 10) : 25 + (enemyLevel * 3)),
-            maxHp: enemyType === 3 ? 20 : (isSpecial ? 60 + (enemyLevel * 10) : 25 + (enemyLevel * 3)),
-            color: eColor, enemyType: enemyType, walkTime: Math.random() * Math.PI, 
-            shootTimer: 0, attackTimer: 0, reward: enemyType === 3 ? 40 : (isSpecial ? 50 : 20),
-            weapon: enemyType === 3 ? 'none' : (enemyType === 2 ? 'melee' : 'pistol'), isGrounded: false 
+    for (let id in otherPlayers) {
+        let op = otherPlayers[id];
+        let opAimTarget = {
+            x: op.x + Math.cos(op.aimAngle || 0) * 100,
+            y: (op.y - 38) + Math.sin(op.aimAngle || 0) * 100
         };
-        socket.emit('spawnEnemy', newEnemy);
-        lastEnemySpawn = Date.now();
+        drawStickman(ctx, op, opAimTarget, true, op.name);
     }
 
-    for (let i = enemies.length - 1; i >= 0; i--) {
-        let e = enemies[i];
-        if (e.hp <= 0) {
-            player.money += e.reward; 
-            if (Math.random() < 0.10) items.push({ x: e.x, y: e.y - 10, vx: (Math.random() - 0.5) * 6, vy: -4, width: 14, height: 20 });
-            enemies.splice(i, 1);
-            continue;
-        }
-        e.vy += player.gravity;
-        let target = player; let minDist = Math.abs(e.x - player.x);
-        for (let id in otherPlayers) {
-            let op = otherPlayers[id]; let absD = Math.abs(e.x - op.x);
-            if (absD < minDist) { minDist = absD; target = op; }
-        }
-        let dist = e.x - target.x; let absDist = Math.abs(dist); let dir = dist > 0 ? -1 : 1; 
-        let baseSpeed = e.maxHp >= 60 ? 2 : 1.25; 
-        
-        if (e.enemyType === 3) {
-            baseSpeed = 4.0; 
-            if (absDist > 10) e.vx = baseSpeed * dir; else e.vx = 0;
-            if (e.isGrounded && Math.random() < 0.05) { e.vy = player.jumpPower * 0.85; e.isGrounded = false; }
-            if (absDist <= 30 && Math.abs(e.y - target.y) < 50) {
-                for (let k = 0; k < 30; k++) sparks.push({ x: e.x, y: e.y - 15, vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20, life: 20 + Math.random() * 20 });
-                if (target === player) {
-                    if (player.weapon === 'shield' && player.ammo['shield'] > 0) player.ammo['shield'] = 0; 
-                    else { player.hp -= 80; if (player.hp <= 0) { alert("게임 오버!"); location.reload(); } }
-                }
-                e.hp = 0; 
-            }
-        } 
-        else if (e.enemyType === 2) {
-            baseSpeed *= 1.6; 
-            if (absDist > 40) e.vx = baseSpeed * dir; else e.vx = 0; 
-            if (absDist <= 40 && Date.now() - (e.lastShot || 0) > 1000) {
-                e.lastShot = Date.now(); e.attackTimer = 15; 
-                if (target === player) {
-                    if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
-                        player.ammo['shield']--;
-                        for (let k = 0; k < 10; k++) sparks.push({ x: player.x, y: player.y - 25, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 15 + Math.random() * 10 });
-                    } else {
-                        player.hp -= 20; if (player.hp <= 0) { alert("게임 오버!"); location.reload(); }
-                    }
-                }
-            }
+    if (player.crouchStamina < player.maxCrouchStamina) {
+        let stamRatio = Math.max(0, player.crouchStamina) / player.maxCrouchStamina;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+        ctx.fillRect(player.x - 20, player.y - 75, 40, 6);
+        ctx.fillStyle = "#00BFFF"; 
+        ctx.fillRect(player.x - 20, player.y - 75, 40 * stamRatio, 6);
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(player.x - 20, player.y - 75, 40, 6);
+    }
+
+    for (let b of bullets) {
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.weaponType === 'sniper' ? 5 : 3, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    for (let s of sparks) {
+        if (s.type === 'dust') {
+            ctx.strokeStyle = `rgba(184, 134, 11, ${s.life / 30})`; 
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            let w = s.size;
+            let h = s.size;
+            ctx.moveTo(s.x - w/2, s.y);
+            ctx.lineTo(s.x - w/4, s.y - h);
+            ctx.lineTo(s.x, s.y);
+            ctx.lineTo(s.x + w/4, s.y - h);
+            ctx.lineTo(s.x + w/2, s.y);
+            ctx.stroke();
         } else {
-            if (absDist > 600) e.vx = baseSpeed * dir; else if (absDist < 450) e.vx = (baseSpeed * 0.8) * (-dir); else e.vx = 0; 
-            if (absDist <= 600 && Date.now() - (e.lastShot || 0) > 2000) { 
-                e.lastShot = Date.now(); e.shootTimer = 100; 
-                const targetHeadY = target.y - 45; const angle = Math.atan2(targetHeadY - (e.y - 38), target.x - e.x);
-                bullets.push({ x: e.x, y: e.y - 38, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, damage: 5, color: 'orange', distanceTraveled: 0, weaponType: 'pistol', pierceRemaining: 0, isEnemy: true });
-            }
+            ctx.fillStyle = s.color ? s.color : "cyan"; 
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.life / 3, 0, Math.PI * 2);
+            ctx.fill();
         }
-        e.x += e.vx; e.y += e.vy;
-        if (e.vx !== 0) e.walkTime += (e.vx > 0 ? 0.2 : -0.2); 
-        if (e.shootTimer > 0) e.shootTimer -= 16; if (e.attackTimer > 0) e.attackTimer -= 1; 
-        const eGroundY = getTerrainY(e.x);
-        if (e.y >= eGroundY) { e.y = eGroundY; e.vy = 0; e.isGrounded = true; } else { e.isGrounded = false; }
-        if (e.x < camX - 1000 || e.y > 2000) enemies.splice(i, 1);
     }
 
-    for (let i = bullets.length - 1; i >= 0; i--) {
-        let b = bullets[i];
-        b.x += b.vx; b.y += b.vy; b.distanceTraveled += Math.sqrt(b.vx*b.vx + b.vy*b.vy);
-        let destroy = false;
-        
-        if (b.isEnemy) {
-            let hitSomeone = false;
-            let pHeight = player.isCrouching ? 35 : player.height;
-            let bRadius = b.weaponType === 'sniper' ? 5 : 3;
-            let hitBarricade = false;
-            for (let k = 0; k < barricades.length; k++) {
-                let bar = barricades[k];
-                if (b.x + bRadius > bar.x - bar.width/2 && b.x - bRadius < bar.x + bar.width/2 && b.y + bRadius > bar.y - bar.height && b.y - bRadius < bar.y) {
-                    bar.hp -= b.damage; hitBarricade = true; destroy = true; 
-                    for (let s = 0; s < 5; s++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
-                    break;
-                }
-            }
-            if (!hitBarricade) {
-                if (b.x + bRadius > player.x - player.width/2 && b.x - bRadius < player.x + player.width/2 && b.y + bRadius > player.y - pHeight && b.y - bRadius < player.y) {
-                    hitSomeone = true;
-                    if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
-                        player.ammo['shield']--; destroy = true;          
-                        for (let k = 0; k < 6; k++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
-                    } else {
-                        player.hp -= b.damage; destroy = true;
-                        if (player.hp <= 0) { alert("게임 오버!"); location.reload(); }
-                    }
-                }
-                if (!hitSomeone) {
-                    for (let id in otherPlayers) {
-                        let op = otherPlayers[id];
-                        let opHeight = op.isCrouching ? 35 : 50; 
-                        if (b.x + bRadius > op.x - 10 && b.x - bRadius < op.x + 10 && b.y + bRadius > op.y - opHeight && b.y - bRadius < op.y) {
-                            destroy = true;
-                            if (op.weapon === 'shield' && op.shieldAmmo > 0) {
-                                for (let k = 0; k < 6; k++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-        } else {
-            for (let j = enemies.length - 1; j >= 0; j--) {
-                let e = enemies[j];
-                if (b.weaponType === 'sniper' && b.distanceTraveled < weapons.sniper.minRange) continue;
-                let hitWidth = e.width + 14;  
-                let hitHeight = e.height + 15; 
+    ctx.restore(); 
 
-                if (b.x > e.x - hitWidth/2 && b.x < e.x + hitWidth/2 && b.y > e.y - hitHeight && b.y < e.y) {
-                    // [핵심] 한 총알이 이미 때린 적은 통과시킴 (관통 다단히트 버그 방지)
-                    if (b.hitEnemies && b.hitEnemies.includes(e.id)) continue; 
+    ctx.strokeStyle = "rgba(255, 0, 0, 0.8)";
+    ctx.lineWidth = 2;
+    
+    ctx.beginPath();
+    ctx.arc(recoiledMouseScreenX, recoiledMouseY, 12, 0, Math.PI * 2);
+    ctx.stroke();
 
-                    let finalDamage = b.damage;
-                    if (b.weaponType === 'shotgun') {
-                        let distanceMultiplier = Math.max(1, 3 - (b.distanceTraveled / 150));
-                        finalDamage = b.damage * distanceMultiplier;
-                    }
+    ctx.fillStyle = "red";
+    ctx.beginPath();
+    ctx.arc(recoiledMouseScreenX, recoiledMouseY, 2, 0, Math.PI * 2);
+    ctx.fill();
 
-                    e.hp -= finalDamage; 
-                    socket.emit('enemyHit', { enemyId: e.id, damage: finalDamage }); 
-                    
-                    if (b.hitEnemies) b.hitEnemies.push(e.id); // 때렸다고 기록
-                    
-                    // [핵심] 관통(다수기) 속성 처리
-                    if (b.pierceRemaining > 0) {
-                        b.pierceRemaining--; // 관통력 1 소모 (총알은 파괴되지 않고 다음 적으로 넘어감)
-                    } else {
-                        destroy = true; // 관통력이 떨어지면 파괴
-                    }
-
-                    if (destroy) break; 
-                }
-            }
-        }
-        if (!destroy) {
-            let ty = getTerrainY(b.x);
-            if (b.y > ty) {
-                if (b.pierceRemaining > 0) { b.pierceRemaining--; b.damage *= 0.7; } 
-                else { destroy = true; }
-            }
-        }
-        let maxRange = (b.weaponType === 'shotgun') ? 400 : 2000;
-        if (b.distanceTraveled > maxRange || b.x > camX + canvas.width * 1.5) destroy = true;
-        if (destroy) bullets.splice(i, 1);
-    }
+    ctx.beginPath();
+    ctx.moveTo(recoiledMouseScreenX, recoiledMouseY - 20); ctx.lineTo(recoiledMouseScreenX, recoiledMouseY - 8); 
+    ctx.moveTo(recoiledMouseScreenX, recoiledMouseY + 20); ctx.lineTo(recoiledMouseScreenX, recoiledMouseY + 8); 
+    ctx.moveTo(recoiledMouseScreenX - 20, recoiledMouseY); ctx.lineTo(recoiledMouseScreenX - 8, recoiledMouseY); 
+    ctx.moveTo(recoiledMouseScreenX + 20, recoiledMouseY); ctx.lineTo(recoiledMouseScreenX + 8, recoiledMouseY); 
+    ctx.stroke();
 }
 
 // --- 캔버스 총기 및 방패 고해상도 드로잉 함수 ---
