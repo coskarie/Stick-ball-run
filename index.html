@@ -756,7 +756,7 @@ function update() {
     }
 
     let currentSpeed = player.speed;
-    if (player.isSlowWalking) currentSpeed *= 0.1; 
+    if (player.isSlowWalking) currentSpeed *= 0.3; 
     if (player.isCrouching) currentSpeed *= 0.2; 
     if (player.isReloading) currentSpeed *= 0.6;
     else if (player.weapon === 'shield' && player.ammo['shield'] > 0) currentSpeed *= 0.7; 
@@ -775,13 +775,30 @@ function update() {
 
     player.vy += player.gravity; player.x += player.vx; player.y += player.vy;
 
-    // [수정] 보이지 않는 벽: 삭제된 지형 영역으로 뒤로 가지 못하도록 막음
+    // 보이지 않는 벽 1: 삭제된 지형 영역으로 뒤로 가지 못하도록 막음 (좌측 마지노선)
     if (terrainChunks.length > 0) {
         let leftBoundary = terrainChunks[0][0].x + (player.width / 2); 
         if (player.x < leftBoundary) {
             player.x = leftBoundary;
-            if (player.vx < 0) player.vx = 0; // 뒤로 가는 속도 제거
+            if (player.vx < 0) player.vx = 0; 
         }
+    }
+
+    // [추가] 보이지 않는 벽 2: 보스 패싱 논란 방지 (우측 마지노선)
+    let activeBoss = enemies.find(e => e.enemyType === 4);
+    if (activeBoss) {
+        if (!player.arenaRightWall) {
+            // 보스가 처음 스폰될 때, 보스 위치를 기준으로 아레나 우측 끝 벽 설정
+            player.arenaRightWall = activeBoss.x + 200; 
+        }
+        // 플레이어가 도망치려고 우측 벽을 뚫으려 하면 막아버림
+        if (player.x > player.arenaRightWall) {
+            player.x = player.arenaRightWall;
+            if (player.vx > 0) player.vx = 0;
+        }
+    } else {
+        // 보스가 없거나, 방금 처치했다면 투명벽 해제
+        player.arenaRightWall = null;
     }
 
     const groundY = getTerrainY(player.x);
