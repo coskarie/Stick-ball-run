@@ -362,15 +362,25 @@ function showUpgradeMenu() {
     categoriesDiv.style.display = 'flex';
     optionsDiv.style.display = 'none';
 
-    const categories = [
-        { name: '권총', id: 'pistol', color: '#aaaaaa' },
-        { name: '기관총', id: 'machineGun', color: '#aaaaaa' },
-        { name: '샷건', id: 'shotgun', color: '#ff6666' },
-        { name: '저격총', id: 'sniper', color: '#6666ff' },
-        { name: '쉴드', id: 'shield', color: '#66ffff' },
-        { name: '체력', id: 'health', color: '#66ff66' },
-        { name: '피지컬', id: 'physical', color: '#ffcc00' }
-    ];
+    let categories = [];
+    
+    // 🚨 [추가/수정] 디펜더로 전직한 상태라면 오직 '쉴드' 카테고리만 노출시킵니다.
+    if (player.job === 'defender') {
+        categories = [
+            { name: '쉴드', id: 'shield', color: '#66ffff' }
+        ];
+    } else {
+        // 전직 전 평민 상태일 때의 기본 카테고리 라인업
+        categories = [
+            { name: '권총', id: 'pistol', color: '#aaaaaa' },
+            { name: '기관총', id: 'machineGun', color: '#aaaaaa' },
+            { name: '샷건', id: 'shotgun', color: '#ff6666' },
+            { name: '저격총', id: 'sniper', color: '#6666ff' },
+            { name: '쉴드', id: 'shield', color: '#66ffff' },
+            { name: '체력', id: 'health', color: '#66ff66' },
+            { name: '피지컬', id: 'physical', color: '#ffcc00' }
+        ];
+    }
 
     categoriesDiv.innerHTML = '';
     categories.forEach(cat => {
