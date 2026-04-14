@@ -402,7 +402,8 @@ function showOptions(categoryId, categoryName, categoryColor) {
     } else if (categoryId === 'shotgun') {
         options = [
             { text: '공격력 +3 증가', action: () => weapons.shotgun.damage += 3 },
-            { text: '다수기 (관통 +1명)', action: () => weapons.shotgun.pierce += 1 },
+            // [수정] 샷건 다수기(관통) +2명씩 추가로 대폭 상향!
+            { text: '다수기 (관통 +2명)', action: () => weapons.shotgun.pierce += 2 },
             { text: '최대 총알 갯수 +2', action: () => { weapons.shotgun.maxAmmo += 2; player.ammo.shotgun += 2; } },
             { text: '공격속도 증가 (쿨타임 감소)', action: () => weapons.shotgun.fireRate = Math.max(300, weapons.shotgun.fireRate - 150) }
         ];
