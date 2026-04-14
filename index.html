@@ -290,7 +290,7 @@ const weapons = {
 
 // [추가] 🚨 보스 몬스터 설정표 (여기서 숫자를 조절하세요!)
 const BOSS_CONFIG = {
-    baseHp: 1500,        // 1500m 첫 보스의 기본 체력
+    baseHp: 500,        // 1500m 첫 보스의 기본 체력
     hpPerLevel: 1000,    // 다음 보스(2500m, 3500m)가 나올 때마다 추가되는 체력
     damage: 10,          // 기관총 한 발당 플레이어에게 입히는 데미지
     fireRate: 150,       // 사격 속도 (작을수록 기관총을 더 빨리 쏨. 150 = 0.15초)
@@ -664,7 +664,6 @@ function gameLoop() {
     }
 }
 
-
 // --- 메인 루프 (update) ---
 function update() {
     // 강화 창이 켜져 있으면 게임의 물리 연산, 적 이동, 투사체 등 모든 로직을 일시정지
@@ -775,6 +774,15 @@ function update() {
     if (mouse.isDown && player.weapon === 'machineGun') tryShoot();
 
     player.vy += player.gravity; player.x += player.vx; player.y += player.vy;
+
+    // [수정] 보이지 않는 벽: 삭제된 지형 영역으로 뒤로 가지 못하도록 막음
+    if (terrainChunks.length > 0) {
+        let leftBoundary = terrainChunks[0][0].x + (player.width / 2); 
+        if (player.x < leftBoundary) {
+            player.x = leftBoundary;
+            if (player.vx < 0) player.vx = 0; // 뒤로 가는 속도 제거
+        }
+    }
 
     const groundY = getTerrainY(player.x);
     if (player.y >= groundY) { player.y = groundY; player.vy = 0; player.isGrounded = true; } else { player.isGrounded = false; }
