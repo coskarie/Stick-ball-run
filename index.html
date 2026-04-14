@@ -181,48 +181,35 @@ let globalRoomNumber = "";
 
 window.addEventListener('keydown', e => { 
     if (!isGameStarted) return; 
-    if (e.repeat) return; // 꾹 누르고 있을 때 발생하는 연속 입력 무시
+    if (player.isUpgrading) return; // [추가] 강화 중 조작 금지
+    if (e.repeat) return; 
 
     const key = e.key.toLowerCase();
     keys[key] = true; 
     const now = Date.now();
 
-    // 방향키 연타 대쉬 로직 (A키 - 왼쪽)
     if (key === 'a') {
-        // 0.25초 이내 연타 감지 && 1초(1000ms) 쿨타임 확인
         if (now - player.lastTapA < 250 && now - player.lastDashTime > 1000) {
             player.lastDashTime = now;
-            player.dashTimer = 12; // 12프레임 동안 대쉬 유지
+            player.dashTimer = 12; 
             player.dashDirection = -1;
-            
-            // 모래먼지 이펙트 생성 (이동 반대 방향으로 튀게 설정)
-            for (let i = 0; i < 5; i++) {
-                sparks.push({ type: 'dust', x: player.x, y: player.y, vx: Math.random() * 6 + 2, vy: -(Math.random() * 4 + 1), life: 20 + Math.random() * 10, size: 15 + Math.random() * 10 });
-            }
+            for (let i = 0; i < 5; i++) sparks.push({ type: 'dust', x: player.x, y: player.y, vx: Math.random() * 6 + 2, vy: -(Math.random() * 4 + 1), life: 20 + Math.random() * 10, size: 15 + Math.random() * 10 });
         }
         player.lastTapA = now;
     }
     
-    // 방향키 연타 대쉬 로직 (D키 - 오른쪽)
     if (key === 'd') {
         if (now - player.lastTapD < 250 && now - player.lastDashTime > 1000) {
             player.lastDashTime = now;
             player.dashTimer = 12;
             player.dashDirection = 1;
-            
-            for (let i = 0; i < 5; i++) {
-                sparks.push({ type: 'dust', x: player.x, y: player.y, vx: -(Math.random() * 6 + 2), vy: -(Math.random() * 4 + 1), life: 20 + Math.random() * 10, size: 15 + Math.random() * 10 });
-            }
+            for (let i = 0; i < 5; i++) sparks.push({ type: 'dust', x: player.x, y: player.y, vx: -(Math.random() * 6 + 2), vy: -(Math.random() * 4 + 1), life: 20 + Math.random() * 10, size: 15 + Math.random() * 10 });
         }
         player.lastTapD = now;
     }
 
-    // Z키 - 천천히 가기 온오프 토글
-    if (key === 'z') {
-        player.isSlowWalking = !player.isSlowWalking;
-    }
+    if (key === 'z') player.isSlowWalking = !player.isSlowWalking;
 
-    // F키 - 바리케이드 하강 설치 (적 공격 방어용)
     if (key === 'f') {
         if (now - player.lastBarricade > 3000) {
             player.lastBarricade = now;
@@ -231,16 +218,9 @@ window.addEventListener('keydown', e => {
             let facing = (Math.cos(aimAngle) > 0) ? 1 : -1;
             let targetX = player.x + (facing * 70); 
             let targetY = getTerrainY(targetX);     
-            const newBarricade = {
-                id: Math.random().toString(36).substr(2, 9),
-                x: targetX, y: targetY - 600, targetY: targetY,
-                width: 30, height: 60, hp: 500, maxHp: 500,
-                weaponType: 'barricade' 
-            };
+            const newBarricade = { id: Math.random().toString(36).substr(2, 9), x: targetX, y: targetY - 600, targetY: targetY, width: 30, height: 60, hp: 500, maxHp: 500, weaponType: 'barricade' };
             barricades.push(newBarricade);
-            if (isGameStarted) {
-                socket.emit('shootBullet', newBarricade); 
-            }
+            if (isGameStarted) socket.emit('shootBullet', newBarricade); 
         }
     }
 
@@ -302,8 +282,10 @@ window.addEventListener('keydown', e => {
 // --- 데이터 설계 ---
 const weapons = {
     pistol: { type: 'single', fireRate: 300, speed: 20, damage: 15, color: 'black', maxAmmo: 10, reloadCost: 0, reloadTime: 1000 },
-    machineGun: { type: 'auto', fireRate: 90, speed: 25, damage: 7, color: 'gray', maxAmmo: 50, reloadCost: 100, reloadTime: 2000 },
-    shotgun: { type: 'single', fireRate: 800, speed: 18, damage: 10, color: 'red', pellets: 6, spread: 35, maxAmmo: 5, reloadCost: 500, reloadTime: 3000 },
+    // [수정] 기관총 오차 범위(spread) 속성 추가
+    machineGun: { type: 'auto', fireRate: 90, speed: 25, damage: 7, color: 'gray', maxAmmo: 50, reloadCost: 100, reloadTime: 2000, spread: 5 },
+    // [수정] 샷건 공속 너프(800 -> 1200) 및 다수기(pierce) 기본 0으로 추가
+    shotgun: { type: 'single', fireRate: 1200, speed: 18, damage: 10, color: 'red', pellets: 6, spread: 35, maxAmmo: 5, reloadCost: 500, reloadTime: 3000, pierce: 0 },
     sniper: { type: 'single', fireRate: 1500, speed: 45, damage: 80, color: 'blue', minRange: 200, pierce: 3, maxAmmo: 8, reloadCost: 1000, reloadTime: 5000 },
     shield: { type: 'shield', fireRate: 9999, speed: 0, damage: 0, color: 'cyan', maxAmmo: 50, reloadCost: 0, reloadTime: 1000 } 
 };
@@ -313,25 +295,14 @@ const player = {
     width: 20, height: 50, 
     weapon: 'pistol', lastShot: 0, isGrounded: false,
     walkTime: 0, shootTimer: 0,
-    money: 1500,
-    hp: 1250,      
-    maxHp: 1250,   
+    money: 1500, hp: 1250, maxHp: 1250,   
     ammo: { pistol: 10, machineGun: 50, shotgun: 5, sniper: 8, shield: 50 },
-    isReloading: false,
-    reloadStart: 0,
-    reloadProgress: 0,
-    isCrouching: false,
-    crouchStamina: 300,
-    maxCrouchStamina: 300,
-    aimAngle: 0, 
-    isSlowWalking: false, 
-    lastBarricade: 0, 
-    recoil: 0, 
-    lastTapA: 0,
-    lastTapD: 0,
-    lastDashTime: 0, 
-    dashTimer: 0,    
-    dashDirection: 1 
+    isReloading: false, reloadStart: 0, reloadProgress: 0,
+    isCrouching: false, crouchStamina: 300, maxCrouchStamina: 300,
+    aimAngle: 0, isSlowWalking: false, lastBarricade: 0, recoil: 0, 
+    lastTapA: 0, lastTapD: 0, lastDashTime: 0, dashTimer: 0, dashDirection: 1,
+    upgradeMilestone: 1, // 목표 거리 (1000, 2000, 3000...)
+    isUpgrading: false   // 현재 강화 창이 켜져 있는지 여부
 };
 
 const bullets = [];
@@ -339,6 +310,152 @@ const enemies = [];
 const sparks = []; 
 const barricades = []; 
 const items = []; 
+
+// --- 강화 시스템 UI 및 로직 ---
+function createUpgradeUI() {
+    const upgradeUI = document.createElement('div');
+    upgradeUI.id = 'upgradeUI';
+    upgradeUI.style.position = 'absolute';
+    upgradeUI.style.top = '0';
+    upgradeUI.style.left = '0';
+    upgradeUI.style.width = '100%';
+    upgradeUI.style.height = '100%';
+    upgradeUI.style.backgroundColor = 'rgba(0, 0, 0, 0.85)';
+    upgradeUI.style.display = 'none';
+    upgradeUI.style.flexDirection = 'column';
+    upgradeUI.style.justifyContent = 'center';
+    upgradeUI.style.alignItems = 'center';
+    upgradeUI.style.zIndex = '200';
+    upgradeUI.style.fontFamily = 'Arial, sans-serif';
+
+    upgradeUI.innerHTML = `
+        <h1 style="color: #ffd700; font-size: 40px; margin-bottom: 40px; text-shadow: 2px 2px 0 #000;">[ 1000m 도달! 특성 강화 ]</h1>
+        <div id="upgradeCategories" style="display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; max-width: 800px;"></div>
+        <div id="upgradeOptions" style="display: none; flex-direction: column; gap: 15px; margin-top: 20px; align-items: center;"></div>
+    `;
+    document.body.appendChild(upgradeUI);
+}
+// 게임 시작 전에 UI 박스를 1번 만들어둡니다.
+createUpgradeUI();
+
+function showUpgradeMenu() {
+    player.isUpgrading = true; // 게임 일시정지 상태 돌입
+    for (let k in keys) keys[k] = false; // 움직임이 고정되지 않게 키보드 입력 강제 해제
+    
+    const ui = document.getElementById('upgradeUI');
+    const categoriesDiv = document.getElementById('upgradeCategories');
+    const optionsDiv = document.getElementById('upgradeOptions');
+    ui.style.display = 'flex';
+    categoriesDiv.style.display = 'flex';
+    optionsDiv.style.display = 'none';
+
+    const categories = [
+        { name: '권총', id: 'pistol', color: '#aaaaaa' },
+        { name: '기관총', id: 'machineGun', color: '#aaaaaa' },
+        { name: '샷건', id: 'shotgun', color: '#ff6666' },
+        { name: '저격총', id: 'sniper', color: '#6666ff' },
+        { name: '쉴드', id: 'shield', color: '#66ffff' },
+        { name: '체력', id: 'health', color: '#66ff66' },
+        { name: '피지컬', id: 'physical', color: '#ffcc00' }
+    ];
+
+    categoriesDiv.innerHTML = '';
+    categories.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.innerText = cat.name;
+        btn.style.padding = '20px 40px';
+        btn.style.fontSize = '24px';
+        btn.style.fontWeight = 'bold';
+        btn.style.cursor = 'pointer';
+        btn.style.border = 'none';
+        btn.style.borderRadius = '10px';
+        btn.style.backgroundColor = '#444';
+        btn.style.color = cat.color;
+        btn.style.boxShadow = '0 4px 6px rgba(0,0,0,0.5)';
+        btn.onmouseover = () => btn.style.backgroundColor = '#555';
+        btn.onmouseout = () => btn.style.backgroundColor = '#444';
+        btn.onclick = () => showOptions(cat.id, cat.name, cat.color);
+        categoriesDiv.appendChild(btn);
+    });
+}
+
+function showOptions(categoryId, categoryName, categoryColor) {
+    const categoriesDiv = document.getElementById('upgradeCategories');
+    const optionsDiv = document.getElementById('upgradeOptions');
+    categoriesDiv.style.display = 'none';
+    optionsDiv.style.display = 'flex';
+    optionsDiv.innerHTML = `<h2 style="color: ${categoryColor}; margin-bottom: 20px;">[ ${categoryName} 강화 선택 ]</h2>`;
+
+    let options = [];
+    if (categoryId === 'pistol') {
+        options = [
+            { text: '공격력 +5 증가', action: () => weapons.pistol.damage += 5 },
+            { text: '최대 총알 갯수 +5', action: () => { weapons.pistol.maxAmmo += 5; player.ammo.pistol += 5; } },
+            { text: '공격속도 증가 (쿨타임 감소)', action: () => weapons.pistol.fireRate = Math.max(50, weapons.pistol.fireRate - 50) }
+        ];
+    } else if (categoryId === 'machineGun') {
+        options = [
+            { text: '공격력 +2 증가', action: () => weapons.machineGun.damage += 2 },
+            { text: '최대 총알 갯수 +25', action: () => { weapons.machineGun.maxAmmo += 25; player.ammo.machineGun += 25; } },
+            { text: '반동 및 오차범위 감소', action: () => weapons.machineGun.spread = Math.max(1, weapons.machineGun.spread - 1) }
+        ];
+    } else if (categoryId === 'shotgun') {
+        options = [
+            { text: '공격력 +3 증가', action: () => weapons.shotgun.damage += 3 },
+            { text: '다수기 (관통 +1명)', action: () => weapons.shotgun.pierce += 1 },
+            { text: '최대 총알 갯수 +2', action: () => { weapons.shotgun.maxAmmo += 2; player.ammo.shotgun += 2; } },
+            { text: '공격속도 증가 (쿨타임 감소)', action: () => weapons.shotgun.fireRate = Math.max(300, weapons.shotgun.fireRate - 150) }
+        ];
+    } else if (categoryId === 'sniper') {
+        options = [
+            { text: '공격력 +20 증가', action: () => weapons.sniper.damage += 20 },
+            { text: '최대 총알 갯수 +2', action: () => { weapons.sniper.maxAmmo += 2; player.ammo.sniper += 2; } }
+        ];
+    } else if (categoryId === 'shield') {
+        options = [
+            { text: '최대 방어 갯수 +10', action: () => { weapons.shield.maxAmmo += 10; player.ammo.shield += 10; } }
+        ];
+    } else if (categoryId === 'health') {
+        options = [
+            { text: '최대 체력 +200 증가', action: () => { player.maxHp += 200; player.hp += 200; } },
+            { text: '체력 500 즉시 회복', action: () => player.hp = Math.min(player.maxHp, player.hp + 500) }
+        ];
+    } else if (categoryId === 'physical') {
+        options = [
+            { text: '이동속도 증가 (+1)', action: () => player.speed += 1 },
+            { text: '숙이기(방어) 스태미너 증가 (+100)', action: () => player.maxCrouchStamina += 100 },
+            { text: '모든 무기 장전 속도 20% 감소', action: () => {
+                for (let w in weapons) {
+                    weapons[w].reloadTime = Math.max(500, weapons[w].reloadTime * 0.8);
+                }
+            }}
+        ];
+    }
+
+    // 선택지 버튼 생성
+    options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.innerText = opt.text;
+        btn.style.padding = '15px 40px';
+        btn.style.fontSize = '22px';
+        btn.style.cursor = 'pointer';
+        btn.style.border = '2px solid #555';
+        btn.style.borderRadius = '8px';
+        btn.style.backgroundColor = '#222';
+        btn.style.color = 'white';
+        btn.style.transition = '0.2s';
+        btn.onmouseover = () => { btn.style.backgroundColor = '#d4af37'; btn.style.color = 'black'; };
+        btn.onmouseout = () => { btn.style.backgroundColor = '#222'; btn.style.color = 'white'; };
+        
+        btn.onclick = () => {
+            opt.action(); // 선택한 강화 적용
+            document.getElementById('upgradeUI').style.display = 'none';
+            player.isUpgrading = false; // 게임 재개
+            player.upgradeMilestone++;  // 다음 1000m를 위해 목표치 갱신 (1 -> 2 -> 3)
+        };
+        optionsDiv.appendChild(btn);
+    });
+}
 
 // --- 시드 기반 난수 생성기 (지형 동기화) ---
 let terrainSeed = 1;
@@ -461,7 +578,8 @@ function getTerrainY(x) {
 
 // --- 사격 및 투사체 ---
 function tryShoot() {
-    if (player.isReloading || player.ammo[player.weapon] <= 0 || player.weapon === 'shield') return;
+    // [수정] 강화 중에는 총이 발사되지 않음
+    if (player.isUpgrading || player.isReloading || player.ammo[player.weapon] <= 0 || player.weapon === 'shield') return;
 
     const now = Date.now();
     const wData = weapons[player.weapon];
@@ -475,7 +593,6 @@ function tryShoot() {
         const targetX = mouse.x + camX;
         const targetY = mouse.y;
 
-        // 앉아 있지 않을 때만 기관총 반동 수치가 증가하도록 변경
         if (player.weapon === 'machineGun' && !player.isCrouching) {
             player.recoil = Math.min((player.recoil || 0) + 0.015, 0.4); 
         }
@@ -488,13 +605,11 @@ function tryShoot() {
                 spawnBullet(spreadAngle, wData, shootY);
             }
         } else if (player.weapon === 'machineGun') {
-            // 정규분포(표준분포표) 근사 기법 적용
-            const rand1 = Math.random();
-            const rand2 = Math.random();
-            const rand3 = Math.random();
+            const rand1 = Math.random(); const rand2 = Math.random(); const rand3 = Math.random();
             const gaussianRandom = (rand1 + rand2 + rand3) / 3; 
             const normalized = (gaussianRandom - 0.5) * 2; 
-            const mgSpread = normalized * (5 * Math.PI / 180); 
+            // [수정] 무기 데이터(wData.spread)에서 오차 범위를 가져와 강화를 통해 줄어들 수 있게 함
+            const mgSpread = normalized * ((wData.spread || 5) * Math.PI / 180); 
             
             spawnBullet(angle + mgSpread, wData, shootY);
         } else {
@@ -514,6 +629,7 @@ function spawnBullet(angle, wData, shootY) {
         distanceTraveled: 0,
         weaponType: player.weapon,
         pierceRemaining: wData.pierce || 0,
+        hitEnemies: [], // [추가] 관통 시 동일한 적 중복 타격 방지 배열
         isEnemy: false
     };
     bullets.push(newBullet);
@@ -538,11 +654,13 @@ function gameLoop() {
     }
 }
 
-// --- 메인 루프 (update) - 누락되었던 핵심 루프 복구 ---
+// --- 메인 루프 (update) ---
 function update() {
+    // [핵심] 강화 창이 켜져 있으면 게임의 물리 연산, 적 이동, 투사체 등 모든 로직을 일시정지
+    if (player.isUpgrading) return; 
+
     generateTerrain();
 
-    // 반동 회복 로직
     if (player.recoil > 0) {
         if (!mouse.isDown || player.weapon !== 'machineGun' || player.isCrouching) {
             player.recoil = player.isCrouching ? 0 : Math.max(0, player.recoil - 0.02);
@@ -556,13 +674,10 @@ function update() {
         const now = Date.now();
         if (now - lastEmitTime > TICK_INTERVAL) {
             socket.emit('playerUpdate', {
-                x: player.x, y: player.y,
-                weapon: player.weapon, hp: player.hp, maxHp: player.maxHp,
+                x: player.x, y: player.y, weapon: player.weapon, hp: player.hp, maxHp: player.maxHp,
                 isCrouching: player.isCrouching, aimAngle: player.aimAngle,
-                isReloading: player.isReloading, vx: player.vx,
-                name: globalPlayerName,
-                shieldAmmo: player.ammo['shield'],
-                isSlowWalking: player.isSlowWalking
+                isReloading: player.isReloading, vx: player.vx, name: globalPlayerName,
+                shieldAmmo: player.ammo['shield'], isSlowWalking: player.isSlowWalking
             });
             lastEmitTime = now;
         }
@@ -580,54 +695,36 @@ function update() {
         }
     }
 
-    // 드랍 아이템(탄창) 물리 연산 및 획득 로직
     for (let i = items.length - 1; i >= 0; i--) {
         let item = items[i];
-        item.vy += player.gravity; // 중력 적용
-        item.x += item.vx;
-        item.y += item.vy;
+        item.vy += player.gravity; 
+        item.x += item.vx; item.y += item.vy;
 
-        // 바닥 충돌
         const itemGroundY = getTerrainY(item.x);
         if (item.y >= itemGroundY) {
-            item.y = itemGroundY;
-            item.vy = 0;
-            item.vx *= 0.8; // 바닥에 닿으면 마찰력으로 멈춤
+            item.y = itemGroundY; item.vy = 0; item.vx *= 0.8; 
         }
 
-        // 플레이어 획득 판정 (히트박스 충돌)
-        if (Math.abs(player.x - item.x) < (player.width / 2 + item.width / 2 + 10) &&
-            Math.abs((player.y - 25) - (item.y - 10)) < (25 + 10 + 10)) {
-            
-            // 현재 들고 있는 무기에 따라 탄약 추가
+        if (Math.abs(player.x - item.x) < (player.width / 2 + item.width / 2 + 10) && Math.abs((player.y - 25) - (item.y - 10)) < (25 + 10 + 10)) {
             const wData = weapons[player.weapon];
-            if (player.weapon === 'pistol') {
-                player.ammo['pistol'] = wData.maxAmmo; 
-            } else if (player.weapon === 'machineGun') {
-                player.ammo['machineGun'] = Math.min(wData.maxAmmo, player.ammo['machineGun'] + 25);
-            } else if (player.weapon === 'shotgun') {
-                player.ammo['shotgun'] = Math.min(wData.maxAmmo, player.ammo['shotgun'] + 3);
-            } else if (player.weapon === 'sniper') {
-                player.ammo['sniper'] = Math.min(wData.maxAmmo, player.ammo['sniper'] + 1);
-            }
+            if (player.weapon === 'pistol') player.ammo['pistol'] = wData.maxAmmo; 
+            else if (player.weapon === 'machineGun') player.ammo['machineGun'] = Math.min(wData.maxAmmo, player.ammo['machineGun'] + 25);
+            else if (player.weapon === 'shotgun') player.ammo['shotgun'] = Math.min(wData.maxAmmo, player.ammo['shotgun'] + 3);
+            else if (player.weapon === 'sniper') player.ammo['sniper'] = Math.min(wData.maxAmmo, player.ammo['sniper'] + 1);
 
-            // 획득 이펙트 (노란색 스파크)
             for (let k = 0; k < 10; k++) sparks.push({ type: 'normal', x: item.x, y: item.y - 10, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8, life: 15 + Math.random() * 10, color: "yellow" });
-
             items.splice(i, 1); 
         }
     }
 
     for (let i = sparks.length - 1; i >= 0; i--) {
-        let s = sparks[i];
-        s.x += s.vx; s.y += s.vy; s.life -= 1;
+        let s = sparks[i]; s.x += s.vx; s.y += s.vy; s.life -= 1;
         if (s.life <= 0) sparks.splice(i, 1);
     }
 
     if (keys['s']) {
         if (player.crouchStamina > 0) {
-            player.isCrouching = true;
-            player.crouchStamina -= 1; 
+            player.isCrouching = true; player.crouchStamina -= 1; 
         } else { player.isCrouching = false; }
     } else {
         player.isCrouching = false;
@@ -649,43 +746,27 @@ function update() {
     }
 
     let currentSpeed = player.speed;
-    if (player.isSlowWalking) {
-        currentSpeed *= 0.3; 
-    }
-    if (player.isCrouching) {
-        currentSpeed *= 0.2; 
-    }
-    if (player.isReloading) {
-        currentSpeed *= 0.6;
-    } else if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
-        currentSpeed *= 0.7; 
-    }
+    if (player.isSlowWalking) currentSpeed *= 0.3; 
+    if (player.isCrouching) currentSpeed *= 0.2; 
+    if (player.isReloading) currentSpeed *= 0.6;
+    else if (player.weapon === 'shield' && player.ammo['shield'] > 0) currentSpeed *= 0.7; 
     
     if (player.dashTimer > 0) {
-        player.vx = player.dashDirection * 22; 
-        player.dashTimer--;
-        player.isCrouching = false; 
+        player.vx = player.dashDirection * 22; player.dashTimer--; player.isCrouching = false; 
     } else {
-        if (keys['a']) player.vx = -currentSpeed;
-        else if (keys['d']) player.vx = currentSpeed;
-        else player.vx = 0;
+        if (keys['a']) player.vx = -currentSpeed; else if (keys['d']) player.vx = currentSpeed; else player.vx = 0;
     }
 
     if (keys['w'] && player.isGrounded && !player.isCrouching) {
-        player.vy = player.jumpPower;
-        player.isGrounded = false;
+        player.vy = player.jumpPower; player.isGrounded = false;
     }
 
     if (mouse.isDown && player.weapon === 'machineGun') tryShoot();
 
-    player.vy += player.gravity;
-    player.x += player.vx;
-    player.y += player.vy;
+    player.vy += player.gravity; player.x += player.vx; player.y += player.vy;
 
     const groundY = getTerrainY(player.x);
-    if (player.y >= groundY) {
-        player.y = groundY; player.vy = 0; player.isGrounded = true;
-    } else { player.isGrounded = false; }
+    if (player.y >= groundY) { player.y = groundY; player.vy = 0; player.isGrounded = true; } else { player.isGrounded = false; }
 
     if (player.isGrounded && Math.abs(player.vx) > 0.1 && !player.isCrouching) player.walkTime += (player.vx > 0 ? 0.2 : -0.2); 
     else if (player.isGrounded) player.walkTime = 0; 
@@ -697,14 +778,20 @@ function update() {
         maxDistance = player.x;
         document.getElementById('distanceUI').innerText = Math.floor(maxDistance / 50);
     }
+
+    let currentMeters = Math.floor(maxDistance / 50);
+
+    // [추가] 목표 미터수 (1000, 2000...)에 도달하면 강화 메뉴 호출
+    if (currentMeters >= player.upgradeMilestone * 1000) {
+        showUpgradeMenu();
+        return; // 즉시 업데이트 함수를 종료시켜 게임 멈춤
+    }
     
     document.getElementById('ammoUI').innerText = `[${player.ammo[player.weapon]} / ${weapons[player.weapon].maxAmmo}]`;
     document.getElementById('moneyUI').innerText = player.money;
     document.getElementById('hpUI').innerText = `${Math.max(0, player.hp)} / ${player.maxHp}`; 
 
-    let currentMeters = Math.floor(maxDistance / 50);
     let spawnCooldown = 5000; let specialChance = 0.05; let enemyLevel = 1;
-
     if (currentMeters < 1000) { spawnCooldown = 5000; specialChance = 0.01; enemyLevel = 1; } 
     else if (currentMeters < 2000) { spawnCooldown = 3000; specialChance = 0.05; enemyLevel = 3; } 
     else if (currentMeters < 3000) { spawnCooldown = 1000; specialChance = 0.10; enemyLevel = 5; } 
@@ -714,34 +801,21 @@ function update() {
         let enemyType = 0; 
         if (Math.random() < specialChance) {
             let r = Math.random();
-            if (r < 0.33) enemyType = 1;
-            else if (r < 0.66) enemyType = 2;
-            else enemyType = 3; 
+            if (r < 0.33) enemyType = 1; else if (r < 0.66) enemyType = 2; else enemyType = 3; 
         }
         let isSpecial = enemyType > 0;
-        
-        let eWidth = enemyType === 3 ? 14 : 20;   
-        let eHeight = enemyType === 3 ? 35 : 50;  
-        
+        let eWidth = enemyType === 3 ? 14 : 20; let eHeight = enemyType === 3 ? 35 : 50;  
         let eColor = '#00aa00';
-        if (enemyType === 1) eColor = 'purple';
-        else if (enemyType === 2) eColor = 'orange';
-        else if (enemyType === 3) eColor = 'red'; 
+        if (enemyType === 1) eColor = 'purple'; else if (enemyType === 2) eColor = 'orange'; else if (enemyType === 3) eColor = 'red'; 
         
         let newEnemy = {
-            id: Math.random().toString(36).substr(2, 9), 
-            x: player.x + canvas.width + 100, 
-            y: 100, 
+            id: Math.random().toString(36).substr(2, 9), x: player.x + canvas.width + 100, y: 100, 
             vx: 0, vy: 0, width: eWidth, height: eHeight,
             hp: enemyType === 3 ? 20 : (isSpecial ? 60 + (enemyLevel * 10) : 25 + (enemyLevel * 3)),
             maxHp: enemyType === 3 ? 20 : (isSpecial ? 60 + (enemyLevel * 10) : 25 + (enemyLevel * 3)),
-            color: eColor,
-            enemyType: enemyType, 
-            walkTime: Math.random() * Math.PI, 
-            shootTimer: 0, attackTimer: 0, 
-            reward: enemyType === 3 ? 40 : (isSpecial ? 50 : 20),
-            weapon: enemyType === 3 ? 'none' : (enemyType === 2 ? 'melee' : 'pistol'), 
-            isGrounded: false 
+            color: eColor, enemyType: enemyType, walkTime: Math.random() * Math.PI, 
+            shootTimer: 0, attackTimer: 0, reward: enemyType === 3 ? 40 : (isSpecial ? 50 : 20),
+            weapon: enemyType === 3 ? 'none' : (enemyType === 2 ? 'melee' : 'pistol'), isGrounded: false 
         };
         socket.emit('spawnEnemy', newEnemy);
         lastEnemySpawn = Date.now();
@@ -751,101 +825,59 @@ function update() {
         let e = enemies[i];
         if (e.hp <= 0) {
             player.money += e.reward; 
-            
-            // 적 사망 시 10% 확률로 탄창 아이템 드랍
-            if (Math.random() < 0.10) {
-                items.push({
-                    x: e.x,
-                    y: e.y - 10,
-                    vx: (Math.random() - 0.5) * 6, 
-                    vy: -4,                        
-                    width: 14,
-                    height: 20
-                });
-            }
-            
+            if (Math.random() < 0.10) items.push({ x: e.x, y: e.y - 10, vx: (Math.random() - 0.5) * 6, vy: -4, width: 14, height: 20 });
             enemies.splice(i, 1);
             continue;
         }
         e.vy += player.gravity;
-        let target = player;
-        let minDist = Math.abs(e.x - player.x);
+        let target = player; let minDist = Math.abs(e.x - player.x);
         for (let id in otherPlayers) {
-            let op = otherPlayers[id];
-            let absD = Math.abs(e.x - op.x);
-            if (absD < minDist) {
-                minDist = absD;
-                target = op;
-            }
+            let op = otherPlayers[id]; let absD = Math.abs(e.x - op.x);
+            if (absD < minDist) { minDist = absD; target = op; }
         }
-        let dist = e.x - target.x; 
-        let absDist = Math.abs(dist);
-        let dir = dist > 0 ? -1 : 1; 
+        let dist = e.x - target.x; let absDist = Math.abs(dist); let dir = dist > 0 ? -1 : 1; 
         let baseSpeed = e.maxHp >= 60 ? 2 : 1.25; 
         
         if (e.enemyType === 3) {
             baseSpeed = 4.0; 
-            if (absDist > 10) e.vx = baseSpeed * dir; 
-            else e.vx = 0;
-            
-            if (e.isGrounded && Math.random() < 0.05) {
-                e.vy = player.jumpPower * 0.85; 
-                e.isGrounded = false;
-            }
-
+            if (absDist > 10) e.vx = baseSpeed * dir; else e.vx = 0;
+            if (e.isGrounded && Math.random() < 0.05) { e.vy = player.jumpPower * 0.85; e.isGrounded = false; }
             if (absDist <= 30 && Math.abs(e.y - target.y) < 50) {
                 for (let k = 0; k < 30; k++) sparks.push({ x: e.x, y: e.y - 15, vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20, life: 20 + Math.random() * 20 });
-                
                 if (target === player) {
-                    if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
-                        player.ammo['shield'] = 0; 
-                    } else {
-                        player.hp -= 80; 
-                        if (player.hp <= 0) { alert("게임 오버!"); location.reload(); }
-                    }
+                    if (player.weapon === 'shield' && player.ammo['shield'] > 0) player.ammo['shield'] = 0; 
+                    else { player.hp -= 80; if (player.hp <= 0) { alert("게임 오버!"); location.reload(); } }
                 }
                 e.hp = 0; 
             }
         } 
         else if (e.enemyType === 2) {
             baseSpeed *= 1.6; 
-            if (absDist > 40) e.vx = baseSpeed * dir; 
-            else e.vx = 0; 
+            if (absDist > 40) e.vx = baseSpeed * dir; else e.vx = 0; 
             if (absDist <= 40 && Date.now() - (e.lastShot || 0) > 1000) {
-                e.lastShot = Date.now();
-                e.attackTimer = 15; 
+                e.lastShot = Date.now(); e.attackTimer = 15; 
                 if (target === player) {
                     if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
                         player.ammo['shield']--;
                         for (let k = 0; k < 10; k++) sparks.push({ x: player.x, y: player.y - 25, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 15 + Math.random() * 10 });
                     } else {
-                        player.hp -= 20; 
-                        if (player.hp <= 0) { alert("게임 오버!"); location.reload(); }
+                        player.hp -= 20; if (player.hp <= 0) { alert("게임 오버!"); location.reload(); }
                     }
                 }
             }
         } else {
-            if (absDist > 600) e.vx = baseSpeed * dir; 
-            else if (absDist < 450) e.vx = (baseSpeed * 0.8) * (-dir); 
-            else e.vx = 0; 
+            if (absDist > 600) e.vx = baseSpeed * dir; else if (absDist < 450) e.vx = (baseSpeed * 0.8) * (-dir); else e.vx = 0; 
             if (absDist <= 600 && Date.now() - (e.lastShot || 0) > 2000) { 
                 e.lastShot = Date.now(); e.shootTimer = 100; 
-                const targetHeadY = target.y - 45; 
-                const angle = Math.atan2(targetHeadY - (e.y - 38), target.x - e.x);
-                bullets.push({
-                    x: e.x, y: e.y - 38, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12,
-                    damage: 5, color: 'orange', distanceTraveled: 0, weaponType: 'pistol',
-                    pierceRemaining: 0, isEnemy: true 
-                });
+                const targetHeadY = target.y - 45; const angle = Math.atan2(targetHeadY - (e.y - 38), target.x - e.x);
+                bullets.push({ x: e.x, y: e.y - 38, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, damage: 5, color: 'orange', distanceTraveled: 0, weaponType: 'pistol', pierceRemaining: 0, isEnemy: true });
             }
         }
         e.x += e.vx; e.y += e.vy;
         if (e.vx !== 0) e.walkTime += (e.vx > 0 ? 0.2 : -0.2); 
-        if (e.shootTimer > 0) e.shootTimer -= 16; 
-        if (e.attackTimer > 0) e.attackTimer -= 1; 
+        if (e.shootTimer > 0) e.shootTimer -= 16; if (e.attackTimer > 0) e.attackTimer -= 1; 
         const eGroundY = getTerrainY(e.x);
-        if (e.y >= eGroundY) { e.y = eGroundY; e.vy = 0; e.isGrounded = true; } 
-        else { e.isGrounded = false; }
+        if (e.y >= eGroundY) { e.y = eGroundY; e.vy = 0; e.isGrounded = true; } else { e.isGrounded = false; }
         if (e.x < camX - 1000 || e.y > 2000) enemies.splice(i, 1);
     }
 
@@ -858,27 +890,17 @@ function update() {
             let hitSomeone = false;
             let pHeight = player.isCrouching ? 35 : player.height;
             let bRadius = b.weaponType === 'sniper' ? 5 : 3;
-            
             let hitBarricade = false;
             for (let k = 0; k < barricades.length; k++) {
                 let bar = barricades[k];
-                if (b.x + bRadius > bar.x - bar.width/2 && 
-                    b.x - bRadius < bar.x + bar.width/2 && 
-                    b.y + bRadius > bar.y - bar.height && 
-                    b.y - bRadius < bar.y) {
-                    
-                    bar.hp -= b.damage; 
-                    hitBarricade = true;
-                    destroy = true; 
-                    
+                if (b.x + bRadius > bar.x - bar.width/2 && b.x - bRadius < bar.x + bar.width/2 && b.y + bRadius > bar.y - bar.height && b.y - bRadius < bar.y) {
+                    bar.hp -= b.damage; hitBarricade = true; destroy = true; 
                     for (let s = 0; s < 5; s++) sparks.push({ x: b.x, y: b.y, vx: -b.vx * 0.4 + (Math.random() - 0.5) * 8, vy: -b.vy * 0.4 + (Math.random() - 0.5) * 8, life: 10 + Math.random() * 10 });
                     break;
                 }
             }
-
             if (!hitBarricade) {
-                if (b.x + bRadius > player.x - player.width/2 && b.x - bRadius < player.x + player.width/2 && 
-                    b.y + bRadius > player.y - pHeight && b.y - bRadius < player.y) {
+                if (b.x + bRadius > player.x - player.width/2 && b.x - bRadius < player.x + player.width/2 && b.y + bRadius > player.y - pHeight && b.y - bRadius < player.y) {
                     hitSomeone = true;
                     if (player.weapon === 'shield' && player.ammo['shield'] > 0) {
                         player.ammo['shield']--; destroy = true;          
@@ -910,7 +932,9 @@ function update() {
                 let hitHeight = e.height + 15; 
 
                 if (b.x > e.x - hitWidth/2 && b.x < e.x + hitWidth/2 && b.y > e.y - hitHeight && b.y < e.y) {
-                    
+                    // [핵심] 한 총알이 이미 때린 적은 통과시킴 (관통 다단히트 버그 방지)
+                    if (b.hitEnemies && b.hitEnemies.includes(e.id)) continue; 
+
                     let finalDamage = b.damage;
                     if (b.weaponType === 'shotgun') {
                         let distanceMultiplier = Math.max(1, 3 - (b.distanceTraveled / 150));
@@ -920,7 +944,15 @@ function update() {
                     e.hp -= finalDamage; 
                     socket.emit('enemyHit', { enemyId: e.id, damage: finalDamage }); 
                     
-                    if (b.weaponType !== 'sniper') destroy = true; 
+                    if (b.hitEnemies) b.hitEnemies.push(e.id); // 때렸다고 기록
+                    
+                    // [핵심] 관통(다수기) 속성 처리
+                    if (b.pierceRemaining > 0) {
+                        b.pierceRemaining--; // 관통력 1 소모 (총알은 파괴되지 않고 다음 적으로 넘어감)
+                    } else {
+                        destroy = true; // 관통력이 떨어지면 파괴
+                    }
+
                     if (destroy) break; 
                 }
             }
