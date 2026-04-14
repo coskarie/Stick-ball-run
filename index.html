@@ -756,7 +756,7 @@ function update() {
     }
 
     let currentSpeed = player.speed;
-    if (player.isSlowWalking) currentSpeed *= 0.3; 
+    if (player.isSlowWalking) currentSpeed *= 0.1; 
     if (player.isCrouching) currentSpeed *= 0.2; 
     if (player.isReloading) currentSpeed *= 0.6;
     else if (player.weapon === 'shield' && player.ammo['shield'] > 0) currentSpeed *= 0.7; 
