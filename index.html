@@ -784,7 +784,7 @@ function update() {
         }
     }
 
-    // [추가] 보이지 않는 벽 2: 보스 패싱 논란 방지 (우측 마지노선)
+    // 보이지 않는 벽 2: 보스 패싱 논란 방지 (우측 마지노선)
     let activeBoss = enemies.find(e => e.enemyType === 4);
     if (activeBoss) {
         if (!player.arenaRightWall) {
@@ -1023,6 +1023,11 @@ function update() {
         } else {
             for (let j = enemies.length - 1; j >= 0; j--) {
                 let e = enemies[j];
+                
+                // 🚨 [버그 수정 핵심] 이미 죽은 몬스터는 총알 충돌 판정에서 완전히 제외시킵니다!
+                // 이렇게 해야 샷건의 수많은 파편이 시체에 꽂히면서 서버로 데미지 신호를 과부하 시키는 현상을 막을 수 있습니다.
+                if (e.hp <= 0) continue; 
+
                 if (b.weaponType === 'sniper' && b.distanceTraveled < weapons.sniper.minRange) continue;
                 let hitWidth = e.width + 14;  
                 let hitHeight = e.height + 15; 
